@@ -163,3 +163,25 @@ export type ActivePage =
   | 'reports'
   | 'vendor'
   | 'settings';
+
+export interface BackendValidationError {
+  file_type: string;
+  row?: number | null;
+  field?: string | null;
+  reason: string;
+}
+
+export interface BackendUploadSummary {
+  purchase_register_count: number;
+  gstr2b_count: number;
+  total_records: number;
+}
+
+export interface BackendUploadResponse {
+  success: boolean;
+  job_id?: string;
+  message: string;
+  summary?: BackendUploadSummary;
+  errors?: BackendValidationError[];
+}
+

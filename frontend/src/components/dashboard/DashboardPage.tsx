@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Header } from '../common/Header';
 import { StatusBadge } from '../common/Badge';
 import { GstHelperTooltip } from '../common/Tooltip';
+import { FileUploadSection } from '../upload/FileUploadSection';
 import { 
   AlertOctagon, 
   ArrowRight, 
@@ -23,6 +24,14 @@ export const DashboardPage: React.FC = () => {
     selectedPeriod,
   } = useApp();
 
+  const uploadSectionRef = useRef<HTMLDivElement>(null);
+
+  const handleNewReconClick = () => {
+    if (uploadSectionRef.current) {
+      uploadSectionRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
   // Active run stats
   const totalInvoices = records.length;
   const matchedInvoices = records.filter(r => r.matchStatus === 'matched').length;
@@ -40,11 +49,11 @@ export const DashboardPage: React.FC = () => {
         actionButton={
           <button
             type="button"
-            onClick={() => setActivePage('upload')}
+            onClick={handleNewReconClick}
             className="inline-flex items-center space-x-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold px-3 py-1.5 rounded transition-colors shadow-sm"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>New Reconciliation</span>
+            <span>Upload New Files</span>
           </button>
         }
       />
@@ -187,6 +196,11 @@ export const DashboardPage: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* File Upload Module: Purchase Register & GSTR-2B */}
+        <div ref={uploadSectionRef} id="upload-data-section">
+          <FileUploadSection />
         </div>
 
         {/* Main Section: Recent Reconciliation Runs */}

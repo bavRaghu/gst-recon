@@ -7,7 +7,8 @@ import type {
   BusinessProfile, 
   ReconciliationSettings, 
   UploadedFileInfo, 
-  ValidationSummary 
+  ValidationSummary,
+  BackendUploadSummary 
 } from '../types';
 import { api } from '../services/api';
 
@@ -30,6 +31,10 @@ interface AppContextType {
   upload2bFile: UploadedFileInfo | null;
   setUploadPrFile: (file: UploadedFileInfo | null) => void;
   setUpload2bFile: (file: UploadedFileInfo | null) => void;
+  activeJobId: string | null;
+  setActiveJobId: (id: string | null) => void;
+  backendUploadSummary: BackendUploadSummary | null;
+  setBackendUploadSummary: (summary: BackendUploadSummary | null) => void;
   validationSummary: ValidationSummary | null;
   loadSampleFiles: () => void;
   clearUploads: () => void;
@@ -84,6 +89,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     status: 'ready',
   });
   
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [backendUploadSummary, setBackendUploadSummary] = useState<BackendUploadSummary | null>(null);
   const [validationSummary, setValidationSummary] = useState<ValidationSummary | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
   const [settings, setSettings] = useState<ReconciliationSettings | null>(null);
@@ -209,6 +216,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         upload2bFile,
         setUploadPrFile,
         setUpload2bFile,
+        activeJobId,
+        setActiveJobId,
+        backendUploadSummary,
+        setBackendUploadSummary,
         validationSummary,
         loadSampleFiles,
         clearUploads,

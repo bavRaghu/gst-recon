@@ -5,7 +5,8 @@ import type {
   ReconciliationSettings, 
   ValidationSummary, 
   VendorMessage,
-  MatchStatus
+  MatchStatus,
+  BackendUploadResponse
 } from '../types';
 import { 
   mockBusinessProfile, 
@@ -228,5 +229,62 @@ export const api = {
     setStoredItem(STORAGE_KEYS.RUNS, currentRuns);
     setStoredItem(STORAGE_KEYS.PROFILE, currentProfile);
     setStoredItem(STORAGE_KEYS.SETTINGS, currentSettings);
-  }
+  },
+
+  // Real Backend Upload Integration
+  async uploadReconciliationFiles(
+    purchaseRegisterFile: File,
+    gstr2bFile: File
+  ): Promise<BackendUploadResponse> {
+    const formData = new FormData();
+    formData.append('purchase_register', purchaseRegisterFile);
+    formData.append('gstr_2b', gstr2bFile);
+
+    try {
+      const response = await fetch('/api/reconciliation/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        if (data && data.errors) {
+          return data as BackendUploadResponse;
+        }
+        return {
+          success: false,
+          message: data?.message || `Server responded with status ${response.status}`,
+          errors: [
+            {
+              file_type: 'Upload',
+              reason: data?.detail || data?.message || 'Server error occurred during upload',
+            },
+          ],
+        };
+      }
+
+      return data as BackendUploadResponse;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Network error or server unreachable';
+      return {
+        success: false,
+        message: 'Could not connect to the backend server. Please verify the backend is running.',
+        errors: [
+          {
+            file_type: 'Network',
+            reason: message,
+          },
+        ],
+      };
+    }
+  },
+
+  async getJobDetails(jobId: string) {
+    const response = await fetch(`/api/reconciliation/jobs/${jobId}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch job ${jobId}`);
+    }
+    return response.json();
+  },
 };
