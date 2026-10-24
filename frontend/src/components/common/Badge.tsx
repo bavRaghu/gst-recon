@@ -30,8 +30,14 @@ export const StatusBadge: React.FC<BadgeProps> = ({ status, severity, label, siz
   } else if (status) {
     switch (status) {
       case 'matched':
+      case 'MATCHED':
         displayLabel = label || 'Matched';
         styleClasses = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+        break;
+      case 'mismatch':
+      case 'MISMATCH':
+        displayLabel = label || 'Mismatch';
+        styleClasses = 'bg-rose-50 text-rose-800 border-rose-200';
         break;
       case 'minor_discrepancy':
         displayLabel = label || 'Minor';
@@ -42,12 +48,21 @@ export const StatusBadge: React.FC<BadgeProps> = ({ status, severity, label, siz
         styleClasses = 'bg-rose-50 text-rose-800 border-rose-200';
         break;
       case 'unmatched_in_2b':
+      case 'missing_in_gstr2b':
+      case 'MISSING_IN_GSTR2B':
         displayLabel = label || 'Missing in 2B';
         styleClasses = 'bg-rose-50 text-rose-800 border-rose-200';
         break;
       case 'unmatched_in_pr':
-        displayLabel = label || 'Missing in Books';
+      case 'missing_in_purchase_register':
+      case 'MISSING_IN_PURCHASE_REGISTER':
+        displayLabel = label || 'Missing in PR';
         styleClasses = 'bg-indigo-50 text-indigo-800 border-indigo-200';
+        break;
+      case 'duplicate_ambiguous':
+      case 'DUPLICATE_AMBIGUOUS':
+        displayLabel = label || 'Ambiguous';
+        styleClasses = 'bg-amber-50 text-amber-800 border-amber-200';
         break;
       case 'Completed':
         displayLabel = label || 'Completed';

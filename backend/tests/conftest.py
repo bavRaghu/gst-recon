@@ -1,5 +1,9 @@
 import io
 import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import pytest
 from datetime import date
 from decimal import Decimal
@@ -9,9 +13,19 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models import Base, ReconciliationJob, PurchaseRecord, Gstr2bRecord
+from app.models import (
+    Base, 
+    ReconciliationJob, 
+    PurchaseRecord, 
+    Gstr2bRecord,
+    ReconciliationResult,
+    ReconciliationProposal
+)
 from app.database import get_db
-from app.main import app
+try:
+    from backend.main import app
+except (ImportError, ModuleNotFoundError):
+    from main import app
 
 # Use SQLite with StaticPool so in-memory DB is shared across threads and connections
 test_engine = create_engine(

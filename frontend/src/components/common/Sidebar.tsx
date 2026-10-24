@@ -18,17 +18,18 @@ export const Sidebar: React.FC = () => {
   const { 
     activePage, 
     setActivePage, 
-    records, 
+    backendResults,
+    backendSummary,
     user, 
     logout, 
     businessProfile 
   } = useApp();
 
-  // Calculate badge counts
-  const majorDiscrepanciesCount = records.filter(r => r.severity === 'major').length;
-  const pendingVendorCount = records.filter(
-    r => r.severity === 'major' && (!r.vendorCommunicationStatus || r.vendorCommunicationStatus === 'not_contacted' || r.vendorCommunicationStatus === 'draft')
-  ).length;
+  // Calculate badge counts strictly from authoritative backend data
+  const totalResultsCount = backendSummary?.total_results ?? backendResults.length;
+  const discrepanciesCount = backendSummary
+    ? (backendSummary.mismatched + backendSummary.missing_in_gstr2b + backendSummary.duplicate_ambiguous)
+    : backendResults.filter(r => r.status !== 'MATCHED').length;
 
   const navItems: { id: ActivePage; label: string; icon: React.FC<{ className?: string }>; badge?: number; badgeColor?: string }[] = [
     {
@@ -50,21 +51,21 @@ export const Sidebar: React.FC = () => {
       id: 'results',
       label: 'Reconciliation Results',
       icon: FileText,
-      badge: records.length,
+      badge: totalResultsCount > 0 ? totalResultsCount : undefined,
       badgeColor: 'bg-slate-200 text-slate-700',
     },
     {
       id: 'discrepancies',
       label: 'Discrepancies',
       icon: AlertTriangle,
-      badge: majorDiscrepanciesCount > 0 ? majorDiscrepanciesCount : undefined,
+      badge: discrepanciesCount > 0 ? discrepanciesCount : undefined,
       badgeColor: 'bg-rose-100 text-rose-800 font-semibold',
     },
     {
       id: 'vendor',
       label: 'Vendor Communication',
       icon: Mail,
-      badge: pendingVendorCount > 0 ? pendingVendorCount : undefined,
+      badge: discrepanciesCount > 0 ? discrepanciesCount : undefined,
       badgeColor: 'bg-amber-100 text-amber-800 font-semibold',
     },
     {
@@ -114,7 +115,7 @@ export const Sidebar: React.FC = () => {
               key={item.id}
               type="button"
               onClick={() => setActivePage(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded text-xs font-medium transition-colors ${
+              className={`w-full flex items-center justify-between px-3 py-2 rounded text-xs font-medium transition-colors cursor-pointer ${
                 isActive
                   ? 'bg-blue-700 text-white font-semibold'
                   : 'text-slate-300 hover:bg-slate-800 hover:text-white'
@@ -158,7 +159,7 @@ export const Sidebar: React.FC = () => {
             onClick={logout}
             title="Log out"
             aria-label="Log out"
-            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded transition-colors"
+            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded transition-colors cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
           </button>

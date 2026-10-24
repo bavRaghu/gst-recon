@@ -1,20 +1,33 @@
 import logging
-from typing import Optional
+from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from .. import config
 from ..database import get_db
-from ..models import Gstr2bRecord, PurchaseRecord, ReconciliationJob
+from ..models import (
+    Gstr2bRecord, 
+    PurchaseRecord, 
+    ReconciliationJob, 
+    ReconciliationProposal, 
+    ReconciliationResult
+)
 from ..parsers import parse_file
 from ..schemas import (
     JobDetailResponse,
+    ProposalSchema,
+    ReconciliationResultSchema,
+    ReconciliationRunRequest,
+    ReconciliationRunResponse,
+    ReconciliationSummarySchema,
     UploadErrorResponse,
     UploadSuccessResponse,
     UploadSummary,
     ValidationErrorItem,
 )
+from ..services.ai_service import run_ai_assisted_matching
+from ..services.reconciliation_service import run_deterministic_reconciliation
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reconciliation", tags=["Reconciliation"])
@@ -288,6 +301,44 @@ async def upload_reconciliation_files(
         )
 
 
+@router.get("/jobs", response_model=List[JobDetailResponse])
+def list_reconciliation_jobs(db: Session = Depends(get_db)):
+    """Fetch all reconciliation jobs with status, counts, and summaries, ordered by newest first."""
+    jobs = db.query(ReconciliationJob).order_by(ReconciliationJob.created_at.desc()).all()
+    response_list = []
+    for job in jobs:
+        pr_count = db.query(PurchaseRecord).filter(PurchaseRecord.job_id == job.id).count()
+        gstr2b_count = db.query(Gstr2bRecord).filter(Gstr2bRecord.job_id == job.id).count()
+        results = db.query(ReconciliationResult).filter(ReconciliationResult.job_id == job.id).all()
+        summary_data = None
+        if results:
+            matched = sum(1 for r in results if r.status == "MATCHED")
+            mismatched = sum(1 for r in results if r.status == "MISMATCH")
+            missing_2b = sum(1 for r in results if r.status == "MISSING_IN_GSTR2B")
+            missing_pr = sum(1 for r in results if r.status == "MISSING_IN_PURCHASE_REGISTER")
+            ambiguous = sum(1 for r in results if r.status == "DUPLICATE_AMBIGUOUS")
+            summary_data = ReconciliationSummarySchema(
+                total_results=len(results),
+                matched=matched,
+                mismatched=mismatched,
+                missing_in_gstr2b=missing_2b,
+                missing_in_purchase_register=missing_pr,
+                duplicate_ambiguous=ambiguous,
+                total_missing=missing_2b + missing_pr,
+            )
+        response_list.append(
+            JobDetailResponse(
+                id=job.id,
+                created_at=job.created_at,
+                status=job.status,
+                purchase_records_count=pr_count,
+                gstr2b_records_count=gstr2b_count,
+                summary=summary_data,
+            )
+        )
+    return response_list
+
+
 @router.get("/jobs/{job_id}", response_model=JobDetailResponse)
 def get_reconciliation_job(job_id: str, db: Session = Depends(get_db)):
     """Fetch status and record counts for an uploaded reconciliation job."""
@@ -301,13 +352,167 @@ def get_reconciliation_job(job_id: str, db: Session = Depends(get_db)):
     pr_count = db.query(PurchaseRecord).filter(PurchaseRecord.job_id == job_id).count()
     gstr2b_count = db.query(Gstr2bRecord).filter(Gstr2bRecord.job_id == job_id).count()
 
+    # Compute summary if job has results
+    summary_data = None
+    results = db.query(ReconciliationResult).filter(ReconciliationResult.job_id == job_id).all()
+    if results:
+        matched = sum(1 for r in results if r.status == "MATCHED")
+        mismatched = sum(1 for r in results if r.status == "MISMATCH")
+        missing_2b = sum(1 for r in results if r.status == "MISSING_IN_GSTR2B")
+        missing_pr = sum(1 for r in results if r.status == "MISSING_IN_PURCHASE_REGISTER")
+        ambiguous = sum(1 for r in results if r.status == "DUPLICATE_AMBIGUOUS")
+        summary_data = ReconciliationSummarySchema(
+            total_results=len(results),
+            matched=matched,
+            mismatched=mismatched,
+            missing_in_gstr2b=missing_2b,
+            missing_in_purchase_register=missing_pr,
+            duplicate_ambiguous=ambiguous,
+            total_missing=missing_2b + missing_pr,
+        )
+
     return JobDetailResponse(
         id=job.id,
         created_at=job.created_at,
         status=job.status,
         purchase_records_count=pr_count,
         gstr2b_records_count=gstr2b_count,
+        summary=summary_data,
     )
+
+
+@router.post("/{job_id}/run", response_model=ReconciliationRunResponse)
+async def run_reconciliation_endpoint(
+    job_id: str,
+    request: Optional[ReconciliationRunRequest] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Executes Stage 2 (Deterministic Reconciliation Engine) and optionally
+    Stage 3 (AI-Assisted Ambiguous Candidate Assessment).
+    - Idempotent and transaction-safe: rerunning replaces prior results for this job.
+    - Preserves results of unrelated jobs.
+    """
+    job = db.query(ReconciliationJob).filter(ReconciliationJob.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Reconciliation job '{job_id}' not found.",
+        )
+
+    tolerance = request.tolerance if request and request.tolerance is not None else None
+    run_ai = request.run_ai_matching if request and request.run_ai_matching is not None else True
+
+    try:
+        # 1. Deterministic Reconciliation Engine
+        results, summary = run_deterministic_reconciliation(db, job_id, tolerance=tolerance)
+
+        # 2. AI-Assisted Candidate Matching (if requested)
+        ai_summary = None
+        if run_ai:
+            try:
+                ai_summary = await run_ai_assisted_matching(db, job_id, results)
+            except Exception as ai_ex:
+                logger.warning("AI candidate matching error for job %s: %s", job_id, ai_ex)
+                ai_summary = {
+                    "ai_enabled": False,
+                    "error": str(ai_ex),
+                    "notes": "Deterministic reconciliation completed; AI assessment failed gracefully.",
+                }
+
+        db.commit()
+        db.refresh(job)
+
+        return ReconciliationRunResponse(
+            success=True,
+            job_id=job.id,
+            status=job.status,
+            summary=ReconciliationSummarySchema(**summary),
+            ai_assessment_summary=ai_summary,
+            message="Reconciliation executed successfully.",
+        )
+    except ValueError as ve:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as ex:
+        db.rollback()
+        logger.error("Error running reconciliation for job %s: %s", job_id, ex)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Reconciliation failed: {str(ex)}",
+        )
+
+
+@router.get("/{job_id}/results", response_model=List[ReconciliationResultSchema])
+def get_reconciliation_results_endpoint(
+    job_id: str,
+    status_filter: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Fetches stored reconciliation results for the given job.
+    Includes linked source records and AI proposals where available.
+    """
+    job = db.query(ReconciliationJob).filter(ReconciliationJob.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Reconciliation job '{job_id}' not found.",
+        )
+
+    query = (
+        db.query(ReconciliationResult)
+        .filter(ReconciliationResult.job_id == job_id)
+        .options(
+            joinedload(ReconciliationResult.purchase_record),
+            joinedload(ReconciliationResult.gstr2b_record),
+            selectinload(ReconciliationResult.proposals),
+        )
+    )
+
+    if status_filter and status_filter.upper() != "ALL":
+        query = query.filter(ReconciliationResult.status == status_filter.upper())
+
+    results = query.order_by(ReconciliationResult.id).all()
+
+    if search and search.strip():
+        q = search.strip().lower()
+        filtered = []
+        for r in results:
+            inv_pr = r.purchase_record.invoice_number.lower() if r.purchase_record else ""
+            inv_2b = r.gstr2b_record.invoice_number.lower() if r.gstr2b_record else ""
+            gstin_pr = r.purchase_record.supplier_gstin.lower() if r.purchase_record else ""
+            gstin_2b = r.gstr2b_record.supplier_gstin.lower() if r.gstr2b_record else ""
+            if q in inv_pr or q in inv_2b or q in gstin_pr or q in gstin_2b:
+                filtered.append(r)
+        results = filtered
+
+    return results
+
+
+@router.get("/{job_id}/proposals", response_model=List[ProposalSchema])
+def get_reconciliation_proposals_endpoint(
+    job_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Fetches AI-assisted candidate proposals for ambiguous or unresolved records.
+    """
+    job = db.query(ReconciliationJob).filter(ReconciliationJob.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Reconciliation job '{job_id}' not found.",
+        )
+
+    proposals = (
+        db.query(ReconciliationProposal)
+        .filter(ReconciliationProposal.job_id == job_id)
+        .order_by(ReconciliationProposal.id)
+        .all()
+    )
+    return proposals
 
 
 @router.get("/jobs/{job_id}/records")

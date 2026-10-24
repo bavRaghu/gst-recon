@@ -1,0 +1,21 @@
+# Environment & dependencies
+.env
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.sqlite3
+
+# Node & Frontend
+node_modules/
+dist/
+.vite/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+venv/
+.pytest_cache/
+.vite/

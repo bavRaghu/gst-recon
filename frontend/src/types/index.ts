@@ -185,3 +185,73 @@ export interface BackendUploadResponse {
   errors?: BackendValidationError[];
 }
 
+// Stage 2 & 3 Backend Reconciliation Interfaces
+export interface BackendRecordItem {
+  id: number;
+  job_id: string;
+  supplier_gstin: string;
+  invoice_number: string;
+  invoice_date: string;
+  taxable_value: string;
+  cgst: string;
+  sgst: string;
+  igst: string;
+}
+
+export interface BackendProposalItem {
+  id: string;
+  job_id: string;
+  result_id?: string | null;
+  source_record_type: string;
+  source_record_id: number;
+  candidate_record_id: number;
+  assessment_status: string; // 'PROPOSED' | 'REJECTED' | 'SKIPPED' | 'UNAVAILABLE' | 'ERROR'
+  confidence?: string | null; // 'HIGH' | 'MEDIUM' | 'LOW' | 'UNCERTAIN'
+  reasoning: string;
+  conflicting_evidence?: string | null;
+  model_metadata?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface BackendReconciliationResult {
+  id: string;
+  job_id: string;
+  purchase_record_id?: number | null;
+  gstr2b_record_id?: number | null;
+  status: 'MATCHED' | 'MISMATCH' | 'MISSING_IN_GSTR2B' | 'MISSING_IN_PURCHASE_REGISTER' | 'DUPLICATE_AMBIGUOUS' | string;
+  differences: Record<string, { purchase_register?: string; gstr2b?: string; difference?: string }>;
+  ambiguity_metadata?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  purchase_record?: BackendRecordItem | null;
+  gstr2b_record?: BackendRecordItem | null;
+  proposals?: BackendProposalItem[];
+}
+
+export interface BackendReconciliationSummary {
+  total_results: number;
+  matched: number;
+  mismatched: number;
+  missing_in_gstr2b: number;
+  missing_in_purchase_register: number;
+  duplicate_ambiguous: number;
+  total_missing: number;
+}
+
+export interface BackendReconciliationRunResponse {
+  success: boolean;
+  job_id: string;
+  status: string;
+  summary: BackendReconciliationSummary;
+  ai_assessment_summary?: Record<string, unknown> | null;
+  message: string;
+}
+
+export interface BackendJobDetail {
+  id: string;
+  created_at: string;
+  status: string;
+  purchase_records_count: number;
+  gstr2b_records_count: number;
+  summary?: BackendReconciliationSummary | null;
+}

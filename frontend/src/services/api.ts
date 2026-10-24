@@ -6,7 +6,11 @@ import type {
   ValidationSummary, 
   VendorMessage,
   MatchStatus,
-  BackendUploadResponse
+  BackendUploadResponse,
+  BackendReconciliationRunResponse,
+  BackendReconciliationResult,
+  BackendProposalItem,
+  BackendJobDetail,
 } from '../types';
 import { 
   mockBusinessProfile, 
@@ -280,10 +284,61 @@ export const api = {
     }
   },
 
-  async getJobDetails(jobId: string) {
+  async listJobs(): Promise<BackendJobDetail[]> {
+    const response = await fetch('/api/reconciliation/jobs');
+    if (!response.ok) {
+      throw new Error('Failed to fetch jobs list');
+    }
+    return response.json();
+  },
+
+  async getJobDetails(jobId: string): Promise<BackendJobDetail> {
     const response = await fetch(`/api/reconciliation/jobs/${jobId}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch job ${jobId}`);
+    }
+    return response.json();
+  },
+
+  // Real Backend Reconciliation Run
+  async runReconciliation(jobId: string, tolerance?: number): Promise<BackendReconciliationRunResponse> {
+    const response = await fetch(`/api/reconciliation/${jobId}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tolerance: tolerance ?? 1.0, run_ai_matching: true }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => null);
+      throw new Error(err?.detail || `Reconciliation failed with status ${response.status}`);
+    }
+    return response.json();
+  },
+
+  // Real Backend Reconciliation Results
+  async getReconciliationResults(
+    jobId: string, 
+    params?: { status?: string; search?: string }
+  ): Promise<BackendReconciliationResult[]> {
+    const query = new URLSearchParams();
+    if (params?.status && params.status !== 'all') {
+      query.append('status_filter', params.status);
+    }
+    if (params?.search && params.search.trim()) {
+      query.append('search', params.search.trim());
+    }
+    const qStr = query.toString() ? `?${query.toString()}` : '';
+    const response = await fetch(`/api/reconciliation/${jobId}/results${qStr}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch reconciliation results for job ${jobId}`);
+    }
+    return response.json();
+  },
+
+  // Real Backend AI Proposals
+  async getReconciliationProposals(jobId: string): Promise<BackendProposalItem[]> {
+    const response = await fetch(`/api/reconciliation/${jobId}/proposals`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch reconciliation proposals for job ${jobId}`);
     }
     return response.json();
   },

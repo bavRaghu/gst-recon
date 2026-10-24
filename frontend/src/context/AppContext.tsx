@@ -8,7 +8,11 @@ import type {
   ReconciliationSettings, 
   UploadedFileInfo, 
   ValidationSummary,
-  BackendUploadSummary 
+  BackendUploadSummary,
+  BackendReconciliationResult,
+  BackendReconciliationSummary,
+  BackendReconciliationRunResponse,
+  BackendJobDetail,
 } from '../types';
 import { api } from '../services/api';
 
@@ -33,8 +37,18 @@ interface AppContextType {
   setUpload2bFile: (file: UploadedFileInfo | null) => void;
   activeJobId: string | null;
   setActiveJobId: (id: string | null) => void;
+  backendJobs: BackendJobDetail[];
   backendUploadSummary: BackendUploadSummary | null;
   setBackendUploadSummary: (summary: BackendUploadSummary | null) => void;
+  backendResults: BackendReconciliationResult[];
+  setBackendResults: (results: BackendReconciliationResult[]) => void;
+  backendSummary: BackendReconciliationSummary | null;
+  setBackendSummary: (summary: BackendReconciliationSummary | null) => void;
+  selectedBackendResult: BackendReconciliationResult | null;
+  setSelectedBackendResult: (result: BackendReconciliationResult | null) => void;
+  isReconciling: boolean;
+  runReconciliationForActiveJob: (tolerance?: number) => Promise<BackendReconciliationRunResponse | null>;
+  fetchBackendResults: (statusFilter?: string, search?: string) => Promise<BackendReconciliationResult[]>;
   validationSummary: ValidationSummary | null;
   loadSampleFiles: () => void;
   clearUploads: () => void;
@@ -55,7 +69,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (saved) {
       try { return JSON.parse(saved); } catch { /* ignore */ }
     }
-    // Default authenticated for seamless MSME workflow testing, or allow toggle
     return {
       name: 'Ramesh Kulkarni',
       email: 'ramesh@omkarengg.in',
@@ -71,7 +84,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedRecordForDetail, setSelectedRecordForDetail] = useState<ReconciliationRecord | null>(null);
   const [selectedRecordForVendor, setSelectedRecordForVendor] = useState<ReconciliationRecord | null>(null);
   
-  // Upload State
+  // Real Backend Upload and Reconciliation State
+  const [activeJobId, setActiveJobId] = useState<string | null>(() => {
+    return localStorage.getItem('gstrecon_active_job_id');
+  });
+  const [backendJobs, setBackendJobs] = useState<BackendJobDetail[]>([]);
+  const [backendUploadSummary, setBackendUploadSummary] = useState<BackendUploadSummary | null>(null);
+  const [backendResults, setBackendResults] = useState<BackendReconciliationResult[]>([]);
+  const [backendSummary, setBackendSummary] = useState<BackendReconciliationSummary | null>(null);
+  const [selectedBackendResult, setSelectedBackendResult] = useState<BackendReconciliationResult | null>(null);
+  const [isReconciling, setIsReconciling] = useState<boolean>(false);
+
+  // Sync activeJobId to localStorage and strictly reset any stale previous job data
+  const handleSetActiveJobId = (id: string | null) => {
+    setActiveJobId(id);
+    if (id) {
+      localStorage.setItem('gstrecon_active_job_id', id);
+    } else {
+      localStorage.removeItem('gstrecon_active_job_id');
+    }
+    // Critical: Never allow previous job's summary, results or drawer selection to leak into a new upload
+    setBackendSummary(null);
+    setBackendResults([]);
+    setSelectedBackendResult(null);
+    setBackendUploadSummary(null);
+  };
+
+  // Upload State for fallback/sample files
   const [uploadPrFile, setUploadPrFile] = useState<UploadedFileInfo | null>({
     name: 'Purchase_Register_Sep_2026.xlsx',
     size: 248500,
@@ -89,8 +128,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     status: 'ready',
   });
   
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const [backendUploadSummary, setBackendUploadSummary] = useState<BackendUploadSummary | null>(null);
   const [validationSummary, setValidationSummary] = useState<ValidationSummary | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
   const [settings, setSettings] = useState<ReconciliationSettings | null>(null);
@@ -117,6 +154,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setBusinessProfile(fetchedProfile);
       setSettings(fetchedSettings);
       setValidationSummary(fetchedValidation);
+
+      // Always fetch list of real backend reconciliation jobs
+      let jobs: BackendJobDetail[] = [];
+      try {
+        jobs = await api.listJobs();
+        setBackendJobs(jobs);
+      } catch (e) {
+        console.warn('Could not list backend jobs:', e);
+      }
+
+      // If activeJobId is not set or not in backend, pick latest job from backend
+      let currentJobId = activeJobId;
+      if (!currentJobId && jobs.length > 0) {
+        currentJobId = jobs[0].id;
+        setActiveJobId(currentJobId);
+        localStorage.setItem('gstrecon_active_job_id', currentJobId);
+      }
+
+      // If activeJobId exists, fetch real backend details and results
+      if (currentJobId) {
+        try {
+          const jobDetails = await api.getJobDetails(currentJobId);
+          if (jobDetails.purchase_records_count !== undefined && jobDetails.gstr2b_records_count !== undefined) {
+            setBackendUploadSummary({
+              purchase_register_count: jobDetails.purchase_records_count,
+              gstr2b_count: jobDetails.gstr2b_records_count,
+              total_records: jobDetails.purchase_records_count + jobDetails.gstr2b_records_count,
+            });
+          }
+          if (jobDetails.summary) {
+            setBackendSummary(jobDetails.summary);
+            const res = await api.getReconciliationResults(currentJobId);
+            setBackendResults(res);
+          } else {
+            // Newly uploaded job that has NOT been reconciled yet
+            setBackendSummary(null);
+            setBackendResults([]);
+          }
+        } catch (err) {
+          console.warn(`Job ${currentJobId} failed to load from backend:`, err);
+          // If job was invalid / 404, fallback to newest existing job if available
+          if (jobs.length > 0 && jobs[0].id !== currentJobId) {
+            const fallbackId = jobs[0].id;
+            setActiveJobId(fallbackId);
+            localStorage.setItem('gstrecon_active_job_id', fallbackId);
+          } else {
+            setActiveJobId(null);
+            localStorage.removeItem('gstrecon_active_job_id');
+            setBackendSummary(null);
+            setBackendResults([]);
+            setBackendUploadSummary(null);
+          }
+        }
+      } else {
+        setBackendSummary(null);
+        setBackendResults([]);
+        setBackendUploadSummary(null);
+      }
     } catch (err) {
       console.error('Error refreshing data:', err);
     }
@@ -124,7 +219,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     refreshData();
-  }, []);
+  }, [activeJobId]);
+
+  const runReconciliationForActiveJob = async (tolerance = 1.0): Promise<BackendReconciliationRunResponse | null> => {
+    if (!activeJobId) {
+      showNotification('No uploaded job selected. Please upload files first.', 'error');
+      return null;
+    }
+    setIsReconciling(true);
+    try {
+      const resp = await api.runReconciliation(activeJobId, tolerance);
+      setBackendSummary(resp.summary);
+      const results = await api.getReconciliationResults(activeJobId);
+      setBackendResults(results);
+
+      // Refresh jobs list so job status updates in background
+      api.listJobs().then(setBackendJobs).catch(() => {});
+
+      showNotification(
+        `Reconciliation complete: ${resp.summary.matched} matched, ${resp.summary.mismatched} mismatched, ${resp.summary.total_missing} missing.`,
+        'success'
+      );
+      return resp;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Reconciliation execution failed.';
+      showNotification(msg, 'error');
+      throw err;
+    } finally {
+      setIsReconciling(false);
+    }
+  };
+
+  const fetchBackendResults = async (statusFilter?: string, search?: string): Promise<BackendReconciliationResult[]> => {
+    if (!activeJobId) return [];
+    try {
+      const results = await api.getReconciliationResults(activeJobId, { status: statusFilter, search });
+      setBackendResults(results);
+      return results;
+    } catch (err: unknown) {
+      console.error('Failed to fetch results:', err);
+      return [];
+    }
+  };
 
   const login = (email: string) => {
     const newUser: UserAccount = {
@@ -174,7 +310,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const clearUploads = () => {
     setUploadPrFile(null);
     setUpload2bFile(null);
-    showNotification('Uploaded files removed', 'info');
+    handleSetActiveJobId(null);
+    setBackendResults([]);
+    setBackendSummary(null);
+    showNotification('Uploaded files and reconciliation results cleared', 'info');
   };
 
   const updateBusinessProfile = async (p: Partial<BusinessProfile>) => {
@@ -217,9 +356,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setUploadPrFile,
         setUpload2bFile,
         activeJobId,
-        setActiveJobId,
+        setActiveJobId: handleSetActiveJobId,
+        backendJobs,
         backendUploadSummary,
         setBackendUploadSummary,
+        backendResults,
+        setBackendResults,
+        backendSummary,
+        setBackendSummary,
+        selectedBackendResult,
+        setSelectedBackendResult,
+        isReconciling,
+        runReconciliationForActiveJob,
+        fetchBackendResults,
         validationSummary,
         loadSampleFiles,
         clearUploads,

@@ -40,13 +40,14 @@ def normalize_invoice_number(val: Any) -> str:
     """
     Conservative normalization of an invoice number.
     - Strips whitespace.
+    - Normalizes letter casing to uppercase.
     - Preserves meaningful characters including leading zeros, hyphens, and slashes.
     - Rejects empty values.
     """
     if val is None:
         raise ValueError("Invoice number is required and cannot be blank.")
     
-    s = str(val).strip()
+    s = str(val).strip().upper()
     if not s:
         raise ValueError("Invoice number is required and cannot be blank.")
     

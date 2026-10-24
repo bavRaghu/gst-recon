@@ -2,9 +2,14 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .config import CORS_ORIGINS
-from .database import init_db
-from .api.reconciliation import router as reconciliation_router
+try:
+    from .app.config import CORS_ORIGINS
+    from .app.database import init_db
+    from .app.api.reconciliation import router as reconciliation_router
+except (ImportError, ValueError):
+    from app.config import CORS_ORIGINS
+    from app.database import init_db
+    from app.api.reconciliation import router as reconciliation_router
 
 logging.basicConfig(
     level=logging.INFO,
