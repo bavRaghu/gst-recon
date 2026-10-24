@@ -342,4 +342,36 @@ export const api = {
     }
     return response.json();
   },
+
+  // Review (Confirm / Reject) AI Match Proposal
+  async reviewProposal(
+    jobId: string,
+    proposalId: string,
+    action: 'CONFIRM_MATCH' | 'REJECT_MATCH',
+    notes?: string,
+    reviewerName: string = 'Accountant'
+  ): Promise<import('../types').BackendProposalReviewResponse> {
+    const response = await fetch(`/api/reconciliation/${jobId}/proposals/${proposalId}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, notes, reviewer_name: reviewerName }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: 'Failed to submit review' }));
+      throw new Error(err.detail || 'Failed to submit review decision');
+    }
+    return response.json();
+  },
+
+  // Plain-English Discrepancy Explanation
+  async getResultExplanation(
+    jobId: string,
+    resultId: string
+  ): Promise<import('../types').BackendDiscrepancyExplanation> {
+    const response = await fetch(`/api/reconciliation/${jobId}/results/${resultId}/explanation`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch discrepancy explanation for result ${resultId}`);
+    }
+    return response.json();
+  },
 };

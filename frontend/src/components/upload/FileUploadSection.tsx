@@ -29,7 +29,9 @@ export const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     setActivePage, 
     setActiveJobId, 
     setBackendUploadSummary, 
-    showNotification 
+    showNotification,
+    runReconciliationForActiveJob,
+    isReconciling,
   } = useApp();
 
   // Selected files
@@ -253,25 +255,25 @@ export const FileUploadSection: React.FC<FileUploadSectionProps> = ({
                   
                   <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white/80 p-2.5 rounded border border-emerald-200 font-mono">
                     <div>
-                      <span className="text-slate-500 text-[11px] block font-sans">Database Job ID</span>
-                      <span className="font-bold text-slate-800 text-xs truncate block" title={uploadSuccessData.jobId}>
-                        {uploadSuccessData.jobId.slice(0, 12)}...
+                      <span className="text-slate-500 text-[11px] block font-sans">GST Period</span>
+                      <span className="font-bold text-slate-800 text-xs truncate block">
+                        {selectedPeriod}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500 text-[11px] block font-sans">Purchase Records</span>
+                      <span className="text-slate-500 text-[11px] block font-sans">Invoices in Books</span>
                       <span className="font-bold text-emerald-800 text-xs">
                         {uploadSuccessData.summary.purchase_register_count}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500 text-[11px] block font-sans">GSTR-2B Records</span>
+                      <span className="text-slate-500 text-[11px] block font-sans">Invoices in GSTR-2B</span>
                       <span className="font-bold text-emerald-800 text-xs">
                         {uploadSuccessData.summary.gstr2b_count}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500 text-[11px] block font-sans">Total Invoices</span>
+                      <span className="text-slate-500 text-[11px] block font-sans">Total Records</span>
                       <span className="font-bold text-slate-900 text-xs">
                         {uploadSuccessData.summary.total_records}
                       </span>
@@ -290,15 +292,34 @@ export const FileUploadSection: React.FC<FileUploadSectionProps> = ({
                   }}
                   className="bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-medium px-2.5 py-1.5 rounded transition-colors text-xs"
                 >
-                  Upload New Files
+                  Upload Other Files
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActivePage('reconciliation')}
-                  className="bg-emerald-700 hover:bg-emerald-800 text-white font-medium px-3 py-1.5 rounded transition-colors text-xs flex items-center space-x-1"
+                  disabled={isReconciling}
+                  onClick={async () => {
+                    try {
+                      const res = await runReconciliationForActiveJob();
+                      if (res) {
+                        setActivePage('results');
+                      }
+                    } catch {
+                      // Handled by context
+                    }
+                  }}
+                  className="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold px-4 py-2 rounded transition-colors text-xs flex items-center space-x-1.5 shadow-sm cursor-pointer"
                 >
-                  <span>Reconcile Now</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  {isReconciling ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Reconciling Invoices...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Reconcile Invoices</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </>
+                  )}
                 </button>
               </div>
             </div>

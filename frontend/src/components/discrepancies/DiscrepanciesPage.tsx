@@ -101,8 +101,8 @@ export const DiscrepanciesPage: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-slate-50 min-h-screen">
       <Header
-        title="Discrepancies Register"
-        subtitle={`Dedicated audit register for invoices requiring attention or supplier correction for ${selectedPeriod}.`}
+        title="Invoices to Check"
+        subtitle={`Review and resolve tax differences, missing supplier filings, and credit at risk for ${selectedPeriod}.`}
       />
 
       <main className="p-6 space-y-5 max-w-7xl">

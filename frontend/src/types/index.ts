@@ -159,6 +159,7 @@ export type ActivePage =
   | 'validation'
   | 'reconciliation'
   | 'results'
+  | 'review'
   | 'discrepancies'
   | 'reports'
   | 'vendor'
@@ -198,6 +199,16 @@ export interface BackendRecordItem {
   igst: string;
 }
 
+export interface BackendProposalAuditLog {
+  id: string;
+  job_id: string;
+  proposal_id: string;
+  action: string;
+  reviewed_by: string;
+  notes?: string | null;
+  created_at: string;
+}
+
 export interface BackendProposalItem {
   id: string;
   job_id: string;
@@ -205,12 +216,37 @@ export interface BackendProposalItem {
   source_record_type: string;
   source_record_id: number;
   candidate_record_id: number;
-  assessment_status: string; // 'PROPOSED' | 'REJECTED' | 'SKIPPED' | 'UNAVAILABLE' | 'ERROR'
+  assessment_status: string; // 'PROPOSED' | 'CONFIRMED' | 'USER_REJECTED' | 'REJECTED' | 'SKIPPED' | 'UNAVAILABLE' | 'ERROR'
   confidence?: string | null; // 'HIGH' | 'MEDIUM' | 'LOW' | 'UNCERTAIN'
+  confidence_score?: number | null; // 0.0 to 1.0
   reasoning: string;
   conflicting_evidence?: string | null;
+  field_comparison?: Record<string, {
+    source?: string;
+    candidate?: string;
+    match?: boolean;
+    type?: string;
+    difference?: string;
+  }> | null;
+  requires_human_review?: boolean;
   model_metadata?: Record<string, unknown> | null;
   created_at: string;
+  source_record?: BackendRecordItem | null;
+  candidate_record?: BackendRecordItem | null;
+  audit_logs?: BackendProposalAuditLog[];
+}
+
+export interface BackendProposalReviewResponse {
+  success: boolean;
+  message: string;
+  proposal: BackendProposalItem;
+  updated_summary?: BackendReconciliationSummary | null;
+}
+
+export interface BackendDiscrepancyExplanation {
+  result_id: string;
+  summary: string;
+  details: string[];
 }
 
 export interface BackendReconciliationResult {

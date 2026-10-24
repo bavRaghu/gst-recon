@@ -7,6 +7,7 @@ import { UploadDataPage } from './components/upload/UploadDataPage';
 import { DataValidationPage } from './components/validation/DataValidationPage';
 import { ReconciliationRunnerPage } from './components/reconciliation/ReconciliationRunnerPage';
 import { ReconciliationResultsPage } from './components/results/ReconciliationResultsPage';
+import { ReviewSuggestedMatchesPage } from './components/review/ReviewSuggestedMatchesPage';
 import { DiscrepanciesPage } from './components/discrepancies/DiscrepanciesPage';
 import { VendorCommunicationPage } from './components/vendor/VendorCommunicationPage';
 import { ReportsPage } from './components/reports/ReportsPage';
@@ -31,6 +32,8 @@ const MainLayout: React.FC = () => {
         return <ReconciliationRunnerPage />;
       case 'results':
         return <ReconciliationResultsPage />;
+      case 'review':
+        return <ReviewSuggestedMatchesPage />;
       case 'discrepancies':
         return <DiscrepanciesPage />;
       case 'vendor':

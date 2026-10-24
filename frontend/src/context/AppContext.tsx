@@ -13,6 +13,7 @@ import type {
   BackendReconciliationSummary,
   BackendReconciliationRunResponse,
   BackendJobDetail,
+  BackendProposalItem,
 } from '../types';
 import { api } from '../services/api';
 
@@ -44,6 +45,10 @@ interface AppContextType {
   setBackendResults: (results: BackendReconciliationResult[]) => void;
   backendSummary: BackendReconciliationSummary | null;
   setBackendSummary: (summary: BackendReconciliationSummary | null) => void;
+  backendProposals: BackendProposalItem[];
+  setBackendProposals: (proposals: BackendProposalItem[]) => void;
+  pendingProposalsCount: number;
+  reviewProposal: (proposalId: string, action: 'CONFIRM_MATCH' | 'REJECT_MATCH', notes?: string) => Promise<void>;
   selectedBackendResult: BackendReconciliationResult | null;
   setSelectedBackendResult: (result: BackendReconciliationResult | null) => void;
   isReconciling: boolean;
@@ -92,6 +97,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [backendUploadSummary, setBackendUploadSummary] = useState<BackendUploadSummary | null>(null);
   const [backendResults, setBackendResults] = useState<BackendReconciliationResult[]>([]);
   const [backendSummary, setBackendSummary] = useState<BackendReconciliationSummary | null>(null);
+  const [backendProposals, setBackendProposals] = useState<BackendProposalItem[]>([]);
   const [selectedBackendResult, setSelectedBackendResult] = useState<BackendReconciliationResult | null>(null);
   const [isReconciling, setIsReconciling] = useState<boolean>(false);
 
@@ -103,9 +109,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } else {
       localStorage.removeItem('gstrecon_active_job_id');
     }
-    // Critical: Never allow previous job's summary, results or drawer selection to leak into a new upload
+    // Critical: Never allow previous job's summary, results, proposals or drawer selection to leak into a new upload
     setBackendSummary(null);
     setBackendResults([]);
+    setBackendProposals([]);
     setSelectedBackendResult(null);
     setBackendUploadSummary(null);
   };
@@ -185,12 +192,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           if (jobDetails.summary) {
             setBackendSummary(jobDetails.summary);
-            const res = await api.getReconciliationResults(currentJobId);
+            const [res, props] = await Promise.all([
+              api.getReconciliationResults(currentJobId),
+              api.getReconciliationProposals(currentJobId).catch(() => [])
+            ]);
             setBackendResults(res);
+            setBackendProposals(props);
           } else {
             // Newly uploaded job that has NOT been reconciled yet
             setBackendSummary(null);
             setBackendResults([]);
+            setBackendProposals([]);
           }
         } catch (err) {
           console.warn(`Job ${currentJobId} failed to load from backend:`, err);
@@ -204,12 +216,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             localStorage.removeItem('gstrecon_active_job_id');
             setBackendSummary(null);
             setBackendResults([]);
+            setBackendProposals([]);
             setBackendUploadSummary(null);
           }
         }
       } else {
         setBackendSummary(null);
         setBackendResults([]);
+        setBackendProposals([]);
         setBackendUploadSummary(null);
       }
     } catch (err) {
@@ -230,8 +244,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const resp = await api.runReconciliation(activeJobId, tolerance);
       setBackendSummary(resp.summary);
-      const results = await api.getReconciliationResults(activeJobId);
+      const [results, proposals] = await Promise.all([
+        api.getReconciliationResults(activeJobId),
+        api.getReconciliationProposals(activeJobId).catch(() => [])
+      ]);
       setBackendResults(results);
+      setBackendProposals(proposals);
 
       // Refresh jobs list so job status updates in background
       api.listJobs().then(setBackendJobs).catch(() => {});
@@ -247,6 +265,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw err;
     } finally {
       setIsReconciling(false);
+    }
+  };
+
+  const pendingProposalsCount = backendProposals.filter(p => p.assessment_status === 'PROPOSED').length;
+
+  const reviewProposal = async (proposalId: string, action: 'CONFIRM_MATCH' | 'REJECT_MATCH', notes?: string) => {
+    if (!activeJobId) return;
+    try {
+      const resp = await api.reviewProposal(activeJobId, proposalId, action, notes, user.name);
+      if (resp.updated_summary) {
+        setBackendSummary(resp.updated_summary);
+      }
+      const [updatedProps, updatedResults] = await Promise.all([
+        api.getReconciliationProposals(activeJobId),
+        api.getReconciliationResults(activeJobId)
+      ]);
+      setBackendProposals(updatedProps);
+      setBackendResults(updatedResults);
+      showNotification(resp.message, 'success');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to submit review';
+      showNotification(msg, 'error');
+      throw err;
     }
   };
 
@@ -364,6 +405,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setBackendResults,
         backendSummary,
         setBackendSummary,
+        backendProposals,
+        setBackendProposals,
+        pendingProposalsCount,
+        reviewProposal,
         selectedBackendResult,
         setSelectedBackendResult,
         isReconciling,

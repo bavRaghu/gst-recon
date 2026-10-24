@@ -42,13 +42,19 @@ export const ReconciliationResultsPage: React.FC = () => {
   const missing2bCount = backendSummary?.missing_in_gstr2b ?? backendResults.filter(r => r.status === 'MISSING_IN_GSTR2B').length;
   const missingPrCount = backendSummary?.missing_in_purchase_register ?? backendResults.filter(r => r.status === 'MISSING_IN_PURCHASE_REGISTER').length;
   const duplicateAmbiguousCount = backendSummary?.duplicate_ambiguous ?? backendResults.filter(r => r.status === 'DUPLICATE_AMBIGUOUS').length;
+  const attentionCount = mismatchCount + missing2bCount + missingPrCount + duplicateAmbiguousCount;
+  const suggestionsCount = backendResults.filter(r => r.proposals && r.proposals.length > 0).length;
 
   // Filtered backend records
   const filteredBackendResults = useMemo(() => {
     if (!hasResults) return [];
     return backendResults.filter(item => {
-      // Filter tab
+      // Simplified user-friendly filter tabs
       if (activeFilter === 'matched' && item.status !== 'MATCHED') return false;
+      if (activeFilter === 'attention' && item.status === 'MATCHED') return false;
+      if (activeFilter === 'suggestions' && (!item.proposals || item.proposals.length === 0)) return false;
+
+      // Legacy sub-filter support if passed
       if (activeFilter === 'mismatch' && item.status !== 'MISMATCH') return false;
       if (activeFilter === 'missing_2b' && item.status !== 'MISSING_IN_GSTR2B') return false;
       if (activeFilter === 'missing_pr' && item.status !== 'MISSING_IN_PURCHASE_REGISTER') return false;
@@ -251,14 +257,12 @@ export const ReconciliationResultsPage: React.FC = () => {
             {/* Filter Tabs and Search Bar */}
             <div className="bg-white border border-slate-200 rounded p-3.5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               {/* Status Tabs */}
-              <div className="flex items-center space-x-1 overflow-x-auto pb-1 md:pb-0">
+              <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
                 {[
-                  { id: 'all', label: `All (${totalCount})` },
+                  { id: 'all', label: `All Invoices (${totalCount})` },
                   { id: 'matched', label: `Matched (${matchedCount})` },
-                  { id: 'mismatch', label: `Mismatched (${mismatchCount})` },
-                  { id: 'missing_2b', label: `Missing in 2B (${missing2bCount})` },
-                  { id: 'missing_pr', label: `Missing in Books (${missingPrCount})` },
-                  ...(duplicateAmbiguousCount > 0 ? [{ id: 'ambiguous', label: `Ambiguous (${duplicateAmbiguousCount})` }] : []),
+                  { id: 'attention', label: `Needs Attention (${attentionCount})` },
+                  { id: 'suggestions', label: `Suggested Matches (${suggestionsCount})` },
                 ].map(tab => (
                   <button
                     key={tab.id}
@@ -267,7 +271,7 @@ export const ReconciliationResultsPage: React.FC = () => {
                     className={`px-3 py-1.5 rounded text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
                       activeFilter === tab.id
                         ? 'bg-blue-700 text-white shadow-xs'
-                        : 'text-slate-600 hover:bg-slate-100'
+                        : 'text-slate-700 bg-slate-100 hover:bg-slate-200'
                     }`}
                   >
                     {tab.label}
@@ -308,11 +312,11 @@ export const ReconciliationResultsPage: React.FC = () => {
                       <th className="py-2.5 px-3">Supplier GSTIN</th>
                       <th className="py-2.5 px-3">Invoice Number</th>
                       <th className="py-2.5 px-3">Invoice Date</th>
-                      <th className="py-2.5 px-3">Status</th>
-                      <th className="py-2.5 px-3 text-right">PR Taxable</th>
-                      <th className="py-2.5 px-3 text-right">2B Taxable</th>
-                      <th className="py-2.5 px-3">Differences Detected</th>
-                      <th className="py-2.5 px-3">AI Advisory Matching</th>
+                      <th className="py-2.5 px-3">Match Status</th>
+                      <th className="py-2.5 px-3 text-right">Books Taxable</th>
+                      <th className="py-2.5 px-3 text-right">GSTR-2B Taxable</th>
+                      <th className="py-2.5 px-3">Difference / Issue</th>
+                      <th className="py-2.5 px-3">Suggested Match</th>
                       <th className="py-2.5 px-3 text-center">Action</th>
                     </tr>
                   </thead>
@@ -396,15 +400,21 @@ export const ReconciliationResultsPage: React.FC = () => {
                               )}
                             </td>
 
-                            {/* AI Advisory Matching */}
+                            {/* Suggested Match */}
                             <td className="py-2.5 px-3">
                               {proposals.length > 0 ? (
-                                <div className="flex items-center space-x-1">
-                                  <span className="inline-flex items-center space-x-1 bg-blue-50 text-blue-800 border border-blue-200 text-[10px] font-semibold px-2 py-0.5 rounded">
-                                    <Sparkles className="w-2.5 h-2.5 text-blue-600" />
-                                    <span>AI Proposal #{proposals[0].candidate_record_id}</span>
-                                  </span>
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActivePage('review');
+                                  }}
+                                  className="inline-flex items-center space-x-1 bg-blue-100 hover:bg-blue-200 text-blue-900 border border-blue-300 text-[11px] font-semibold px-2 py-0.5 rounded transition-colors cursor-pointer"
+                                  title="Review AI suggested match"
+                                >
+                                  <Sparkles className="w-3 h-3 text-blue-700" />
+                                  <span>Suggested Match</span>
+                                </button>
                               ) : (
                                 <span className="text-slate-400 text-[11px]">—</span>
                               )}

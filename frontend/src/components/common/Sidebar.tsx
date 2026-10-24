@@ -3,9 +3,9 @@ import { useApp } from '../../context/AppContext';
 import { 
   LayoutDashboard, 
   UploadCloud, 
-  RefreshCw, 
-  AlertTriangle, 
   FileText, 
+  Sparkles, 
+  AlertTriangle, 
   Mail, 
   Settings, 
   LogOut,
@@ -20,18 +20,20 @@ export const Sidebar: React.FC = () => {
     setActivePage, 
     backendResults,
     backendSummary,
+    pendingProposalsCount,
     user, 
     logout, 
     businessProfile 
   } = useApp();
 
-  // Calculate badge counts strictly from authoritative backend data
+  // Authoritative results & discrepancy counts
   const totalResultsCount = backendSummary?.total_results ?? backendResults.length;
   const discrepanciesCount = backendSummary
     ? (backendSummary.mismatched + backendSummary.missing_in_gstr2b + backendSummary.duplicate_ambiguous)
     : backendResults.filter(r => r.status !== 'MATCHED').length;
 
-  const navItems: { id: ActivePage; label: string; icon: React.FC<{ className?: string }>; badge?: number; badgeColor?: string }[] = [
+  // 4 Primary Destinations prioritized for MSME accountants
+  const primaryNavItems: { id: ActivePage; label: string; icon: React.FC<{ className?: string }>; badge?: number; badgeColor?: string }[] = [
     {
       id: 'dashboard',
       label: 'Dashboard',
@@ -39,24 +41,30 @@ export const Sidebar: React.FC = () => {
     },
     {
       id: 'upload',
-      label: 'Upload Data',
+      label: 'Upload Invoices',
       icon: UploadCloud,
-    },
-    {
-      id: 'reconciliation',
-      label: 'Reconciliation',
-      icon: RefreshCw,
     },
     {
       id: 'results',
       label: 'Reconciliation Results',
       icon: FileText,
       badge: totalResultsCount > 0 ? totalResultsCount : undefined,
-      badgeColor: 'bg-slate-200 text-slate-700',
+      badgeColor: 'bg-slate-200 text-slate-700 font-semibold',
     },
     {
+      id: 'review',
+      label: 'Review Suggested Matches',
+      icon: Sparkles,
+      badge: pendingProposalsCount > 0 ? pendingProposalsCount : undefined,
+      badgeColor: 'bg-blue-600 text-white font-bold',
+    },
+  ];
+
+  // Secondary destinations grouped neatly
+  const secondaryNavItems: { id: ActivePage; label: string; icon: React.FC<{ className?: string }>; badge?: number; badgeColor?: string }[] = [
+    {
       id: 'discrepancies',
-      label: 'Discrepancies',
+      label: 'Invoices to Check',
       icon: AlertTriangle,
       badge: discrepanciesCount > 0 ? discrepanciesCount : undefined,
       badgeColor: 'bg-rose-100 text-rose-800 font-semibold',
@@ -65,8 +73,6 @@ export const Sidebar: React.FC = () => {
       id: 'vendor',
       label: 'Vendor Communication',
       icon: Mail,
-      badge: discrepanciesCount > 0 ? discrepanciesCount : undefined,
-      badgeColor: 'bg-amber-100 text-amber-800 font-semibold',
     },
     {
       id: 'reports',
@@ -101,38 +107,76 @@ export const Sidebar: React.FC = () => {
       </div>
 
       {/* Navigation List */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-          Reconciliation Workflow
+      <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
+        {/* Primary Tasks */}
+        <div className="space-y-1">
+          <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Main Actions
+          </div>
+
+          {primaryNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activePage === item.id;
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActivePage(item.id)}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded text-xs font-medium transition-colors cursor-pointer ${
+                  isActive
+                    ? 'bg-blue-700 text-white font-semibold shadow-xs'
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                  <span>{item.label}</span>
+                </div>
+                {item.badge !== undefined && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${item.badgeColor}`}>
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = activePage === item.id;
+        {/* Secondary Tasks */}
+        <div className="space-y-1 pt-2 border-t border-slate-800/80">
+          <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Support & Reports
+          </div>
 
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setActivePage(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded text-xs font-medium transition-colors cursor-pointer ${
-                isActive
-                  ? 'bg-blue-700 text-white font-semibold'
-                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center space-x-3">
-                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                <span>{item.label}</span>
-              </div>
-              {item.badge !== undefined && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${item.badgeColor}`}>
-                  {item.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
+          {secondaryNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activePage === item.id;
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActivePage(item.id)}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded text-xs font-medium transition-colors cursor-pointer ${
+                  isActive
+                    ? 'bg-blue-700 text-white font-semibold'
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                  <span>{item.label}</span>
+                </div>
+                {item.badge !== undefined && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${item.badgeColor}`}>
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </nav>
 
       {/* User / Organization Profile & Logout */}

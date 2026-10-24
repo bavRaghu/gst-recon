@@ -9,7 +9,8 @@ import {
   Building2, 
   HelpCircle,
   Sparkles,
-  AlertTriangle
+  AlertTriangle,
+  Info
 } from 'lucide-react';
 
 interface DrawerProps {
@@ -141,6 +142,29 @@ export const InvoiceDetailDrawer: React.FC<DrawerProps> = ({
                 )}
               </div>
             )}
+
+            {/* Plain-English Discrepancy Explanation */}
+            <div className={`rounded p-3.5 border text-xs space-y-1.5 ${
+              isMatched 
+                ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
+                : 'bg-amber-50/70 border-amber-200 text-amber-950'
+            }`}>
+              <div className="flex items-center space-x-2 font-bold">
+                <HelpCircle className={`w-4 h-4 ${isMatched ? 'text-emerald-700' : 'text-amber-700'}`} />
+                <span>Invoice Status Explanation</span>
+              </div>
+              <p className="leading-relaxed text-[11px] text-slate-700">
+                {isMatched
+                  ? 'All invoice details, dates, and tax values match completely with zero discrepancies between your accounting books and GSTR-2B.'
+                  : isMissingIn2B
+                  ? 'This invoice is recorded in your books, but your supplier has not filed it in GSTR-2B. Under GST Section 16(2)(aa), input tax credit cannot be legally claimed until the supplier files their GSTR-1.'
+                  : isMissingInPr
+                  ? 'Your supplier filed this invoice in GSTR-2B, but it has not been recorded in your accounting books. Verify whether goods/services were received and record the invoice to claim ITC.'
+                  : isAmbiguous
+                  ? 'Duplicate entries were detected with identical invoice number and supplier GSTIN. Verify whether this represents an accidental duplicate in books or an amended supplier filing.'
+                  : 'A discrepancy in taxable value or tax amounts was detected. Verify the physical supplier invoice against the auto-drafted GSTR-2B filing to resolve the difference.'}
+              </p>
+            </div>
 
             {/* Side-by-Side Field Comparison Table */}
             <div className="border border-slate-300 rounded overflow-hidden shadow-xs">
@@ -316,16 +340,16 @@ export const InvoiceDetailDrawer: React.FC<DrawerProps> = ({
               </table>
             </div>
 
-            {/* AI Advisory Proposals Section (if any proposal exists) */}
+            {/* AI Suggested Match Section */}
             {proposals.length > 0 && (
               <div className="border border-blue-200 rounded overflow-hidden shadow-xs bg-blue-50/40">
                 <div className="bg-blue-100/70 px-4 py-2.5 border-b border-blue-200 flex items-center justify-between">
                   <div className="flex items-center space-x-2 text-xs font-bold text-blue-950">
                     <Sparkles className="w-4 h-4 text-blue-700" />
-                    <span>AI Advisory Candidate Proposal</span>
+                    <span>Suggested Match Found</span>
                   </div>
-                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-blue-200/80 text-blue-900">
-                    Advisory (Non-authoritative)
+                  <span className="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded bg-blue-200/80 text-blue-900">
+                    Requires Review
                   </span>
                 </div>
 
@@ -334,42 +358,66 @@ export const InvoiceDetailDrawer: React.FC<DrawerProps> = ({
                     <div key={idx} className="bg-white border border-blue-200 rounded p-3 space-y-2">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
-                          <span className="font-semibold text-slate-800">
-                            Assessment: <span className="font-mono text-blue-700">{prop.assessment_status}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                            prop.confidence === 'HIGH' 
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                              : 'bg-amber-100 text-amber-800 border border-amber-300'
+                          }`}>
+                            {prop.confidence === 'HIGH' ? 'High Confidence Match' : 'Review Required'}
                           </span>
-                          {prop.confidence && (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                              prop.confidence === 'HIGH' 
-                                ? 'bg-emerald-100 text-emerald-800' 
-                                : prop.confidence === 'MEDIUM' 
-                                ? 'bg-amber-100 text-amber-800' 
-                                : 'bg-slate-100 text-slate-700'
-                            }`}>
-                              Confidence: {prop.confidence}
-                            </span>
-                          )}
+                          <span className="text-[11px] text-slate-500">
+                            Status: <strong className="font-mono text-blue-900">{prop.assessment_status}</strong>
+                          </span>
                         </div>
-                        <span className="text-[10px] font-mono text-slate-400">
-                          Candidate ID: #{prop.candidate_record_id}
-                        </span>
                       </div>
 
-                      <div className="text-slate-700 leading-relaxed bg-slate-50 p-2.5 rounded border border-slate-200 text-[11px]">
-                        <span className="font-bold text-slate-900 block mb-0.5">Reasoning:</span>
-                        {prop.reasoning}
-                      </div>
+                      {prop.assessment_status === 'UNAVAILABLE' || prop.assessment_status === 'ERROR' || prop.reasoning?.toLowerCase().includes('unavailable') ? (
+                        <div className="text-slate-700 leading-relaxed bg-slate-100 p-2.5 rounded border border-slate-200 text-[11px] flex items-start space-x-2">
+                          <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold text-slate-800 block mb-0.5">AI Suggestions:</span>
+                            <span>{prop.reasoning}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-slate-700 leading-relaxed bg-slate-50 p-2.5 rounded border border-slate-200 text-[11px]">
+                          <span className="font-bold text-slate-900 block mb-0.5">Why we think these match:</span>
+                          {prop.reasoning}
+                        </div>
+                      )}
 
                       {prop.conflicting_evidence && (
-                        <div className="text-rose-800 bg-rose-50 p-2 rounded border border-rose-200 text-[11px]">
-                          <span className="font-bold block">Conflicting Evidence:</span>
+                        <div className="text-amber-800 bg-amber-50 p-2 rounded border border-amber-200 text-[11px]">
+                          <span className="font-bold block">Points to check:</span>
                           {prop.conflicting_evidence}
                         </div>
                       )}
+
+                      {prop.assessment_status === 'PROPOSED' ? (
+                        <div className="pt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              setActivePage('review');
+                            }}
+                            className="bg-blue-700 hover:bg-blue-800 text-white font-semibold text-xs px-3 py-1.5 rounded transition-colors shadow-xs flex items-center space-x-1.5 cursor-pointer"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>Review & Confirm Match</span>
+                          </button>
+                        </div>
+                      ) : prop.assessment_status === 'CONFIRMED' ? (
+                        <div className="pt-1 text-[11px] text-emerald-700 font-semibold flex items-center space-x-1">
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Match confirmed and saved in reconciliation results.</span>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
 
                   <p className="text-[11px] text-blue-800 italic pt-1">
-                    * AI proposals are strictly advisory and generated within the same supplier GSTIN. Authoritative reconciliation status is not modified until accepted.
+                    * AI suggestions never modify authoritative reconciliation status until explicitly confirmed by you.
                   </p>
                 </div>
               </div>
