@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Header } from '../common/Header';
-import { StatusBadge } from '../common/Badge';
+import { StatusBadge, SeverityBadge } from '../common/Badge';
 import { InvoiceDetailDrawer } from './InvoiceDetailDrawer';
 import { 
   Search, 
@@ -38,23 +38,31 @@ export const ReconciliationResultsPage: React.FC = () => {
   // Real backend summary counts strictly derived from backend authoritative data
   const totalCount = backendSummary?.total_results ?? backendResults.length;
   const matchedCount = backendSummary?.matched ?? backendResults.filter(r => r.status === 'MATCHED').length;
-  const mismatchCount = backendSummary?.mismatched ?? backendResults.filter(r => r.status === 'MISMATCH').length;
   const missing2bCount = backendSummary?.missing_in_gstr2b ?? backendResults.filter(r => r.status === 'MISSING_IN_GSTR2B').length;
   const missingPrCount = backendSummary?.missing_in_purchase_register ?? backendResults.filter(r => r.status === 'MISSING_IN_PURCHASE_REGISTER').length;
   const duplicateAmbiguousCount = backendSummary?.duplicate_ambiguous ?? backendResults.filter(r => r.status === 'DUPLICATE_AMBIGUOUS').length;
-  const attentionCount = mismatchCount + missing2bCount + missingPrCount + duplicateAmbiguousCount;
+  const majorCount = backendSummary?.major_discrepancies ?? backendResults.filter(r => r.severity === 'MAJOR').length;
+  const minorCount = backendSummary?.minor_discrepancies ?? backendResults.filter(r => r.severity === 'MINOR').length;
+  const noneCount = backendSummary?.none_count ?? backendResults.filter(r => r.severity === 'NONE' || r.status === 'MATCHED').length;
+  const unclassifiedCount = backendSummary?.unclassified_count ?? backendResults.filter(r => r.severity === 'UNCLASSIFIED' || r.status === 'DUPLICATE_AMBIGUOUS').length;
   const suggestionsCount = backendResults.filter(r => r.proposals && r.proposals.length > 0).length;
 
   // Filtered backend records
   const filteredBackendResults = useMemo(() => {
     if (!hasResults) return [];
     return backendResults.filter(item => {
-      // Simplified user-friendly filter tabs
+      // Severity filter tabs
+      if (activeFilter === 'major' && item.severity !== 'MAJOR') return false;
+      if (activeFilter === 'minor' && item.severity !== 'MINOR') return false;
+      if (activeFilter === 'none' && item.severity !== 'NONE' && item.status !== 'MATCHED') return false;
+      if (activeFilter === 'unclassified' && item.severity !== 'UNCLASSIFIED' && item.status !== 'DUPLICATE_AMBIGUOUS') return false;
+
+      // Status filter tabs
       if (activeFilter === 'matched' && item.status !== 'MATCHED') return false;
       if (activeFilter === 'attention' && item.status === 'MATCHED') return false;
       if (activeFilter === 'suggestions' && (!item.proposals || item.proposals.length === 0)) return false;
 
-      // Legacy sub-filter support if passed
+      // Sub-filter support
       if (activeFilter === 'mismatch' && item.status !== 'MISMATCH') return false;
       if (activeFilter === 'missing_2b' && item.status !== 'MISSING_IN_GSTR2B') return false;
       if (activeFilter === 'missing_pr' && item.status !== 'MISSING_IN_PURCHASE_REGISTER') return false;
@@ -82,11 +90,13 @@ export const ReconciliationResultsPage: React.FC = () => {
       return;
     }
 
-    const headers = 'Result ID,Status,Supplier GSTIN,Invoice Number,Invoice Date,PR Taxable,PR CGST,PR SGST,PR IGST,2B Taxable,2B CGST,2B SGST,2B IGST,Differences,AI Proposals\n';
+    const headers = 'Result ID,Status,Severity,Severity Reason,Supplier GSTIN,Invoice Number,Invoice Date,PR Taxable,PR CGST,PR SGST,PR IGST,2B Taxable,2B CGST,2B SGST,2B IGST,Differences,AI Proposals\n';
     const rows = filteredBackendResults.map(r => {
       const gstin = r.purchase_record?.supplier_gstin || r.gstr2b_record?.supplier_gstin || '';
       const invNum = r.purchase_record?.invoice_number || r.gstr2b_record?.invoice_number || '';
       const invDate = r.purchase_record?.invoice_date || r.gstr2b_record?.invoice_date || '';
+      const severity = r.severity || 'UNCLASSIFIED';
+      const severityReason = (r.severity_reason || '').replace(/"/g, '""');
       const prTaxable = r.purchase_record?.taxable_value || '0.00';
       const prCgst = r.purchase_record?.cgst || '0.00';
       const prSgst = r.purchase_record?.sgst || '0.00';
@@ -101,7 +111,7 @@ export const ReconciliationResultsPage: React.FC = () => {
       const aiText = (r.proposals || [])
         .map(p => `Candidate#${p.candidate_record_id}:${p.confidence}`)
         .join(';');
-      return `"${r.id}","${r.status}","${gstin}","${invNum}","${invDate}",${prTaxable},${prCgst},${prSgst},${prIgst},${twoBTaxable},${twoBCgst},${twoBSgst},${twoBIgst},"${diffText}","${aiText}"`;
+      return `"${r.id}","${r.status}","${severity}","${severityReason}","${gstin}","${invNum}","${invDate}",${prTaxable},${prCgst},${prSgst},${prIgst},${twoBTaxable},${twoBCgst},${twoBSgst},${twoBIgst},"${diffText}","${aiText}"`;
     }).join('\n');
 
     const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
@@ -193,20 +203,20 @@ export const ReconciliationResultsPage: React.FC = () => {
             <div className="text-xl font-bold font-mono text-emerald-700 mt-1">{matchedCount}</div>
           </div>
           <div className="bg-white border border-slate-200 rounded p-3 shadow-xs">
-            <div className="text-[11px] font-medium text-rose-800">Mismatched</div>
-            <div className="text-xl font-bold font-mono text-rose-700 mt-1">{mismatchCount}</div>
+            <div className="text-[11px] font-medium text-rose-800">Major Discrepancy</div>
+            <div className="text-xl font-bold font-mono text-rose-700 mt-1">{majorCount}</div>
           </div>
           <div className="bg-white border border-slate-200 rounded p-3 shadow-xs">
-            <div className="text-[11px] font-medium text-rose-800">Missing in 2B</div>
-            <div className="text-xl font-bold font-mono text-rose-700 mt-1">{missing2bCount}</div>
+            <div className="text-[11px] font-medium text-amber-800">Minor Discrepancy</div>
+            <div className="text-xl font-bold font-mono text-amber-700 mt-1">{minorCount}</div>
           </div>
           <div className="bg-white border border-slate-200 rounded p-3 shadow-xs">
-            <div className="text-[11px] font-medium text-indigo-800">Missing in Books</div>
-            <div className="text-xl font-bold font-mono text-indigo-700 mt-1">{missingPrCount}</div>
+            <div className="text-[11px] font-medium text-indigo-800">Missing Invoices</div>
+            <div className="text-xl font-bold font-mono text-indigo-700 mt-1">{missing2bCount + missingPrCount}</div>
           </div>
           <div className="bg-white border border-slate-200 rounded p-3 shadow-xs">
-            <div className="text-[11px] font-medium text-amber-800">Ambiguous Duplicates</div>
-            <div className="text-xl font-bold font-mono text-amber-700 mt-1">{duplicateAmbiguousCount}</div>
+            <div className="text-[11px] font-medium text-slate-600">Ambiguous Duplicates</div>
+            <div className="text-xl font-bold font-mono text-slate-700 mt-1">{duplicateAmbiguousCount}</div>
           </div>
         </div>
 
@@ -256,13 +266,15 @@ export const ReconciliationResultsPage: React.FC = () => {
           <>
             {/* Filter Tabs and Search Bar */}
             <div className="bg-white border border-slate-200 rounded p-3.5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              {/* Status Tabs */}
+              {/* Severity & Status Tabs */}
               <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
                 {[
-                  { id: 'all', label: `All Invoices (${totalCount})` },
-                  { id: 'matched', label: `Matched (${matchedCount})` },
-                  { id: 'attention', label: `Needs Attention (${attentionCount})` },
-                  { id: 'suggestions', label: `Suggested Matches (${suggestionsCount})` },
+                  { id: 'all', label: `All (${totalCount})` },
+                  { id: 'major', label: `Major (${majorCount})` },
+                  { id: 'minor', label: `Minor (${minorCount})` },
+                  { id: 'none', label: `None (${noneCount})` },
+                  { id: 'unclassified', label: `Unclassified (${unclassifiedCount})` },
+                  { id: 'suggestions', label: `Suggestions (${suggestionsCount})` },
                 ].map(tab => (
                   <button
                     key={tab.id}
@@ -313,9 +325,10 @@ export const ReconciliationResultsPage: React.FC = () => {
                       <th className="py-2.5 px-3">Invoice Number</th>
                       <th className="py-2.5 px-3">Invoice Date</th>
                       <th className="py-2.5 px-3">Match Status</th>
+                      <th className="py-2.5 px-3">Severity</th>
                       <th className="py-2.5 px-3 text-right">Books Taxable</th>
                       <th className="py-2.5 px-3 text-right">GSTR-2B Taxable</th>
-                      <th className="py-2.5 px-3">Difference / Issue</th>
+                      <th className="py-2.5 px-3">Difference / Reason</th>
                       <th className="py-2.5 px-3">Suggested Match</th>
                       <th className="py-2.5 px-3 text-center">Action</th>
                     </tr>
@@ -323,7 +336,7 @@ export const ReconciliationResultsPage: React.FC = () => {
                   <tbody className="divide-y divide-slate-100">
                     {filteredBackendResults.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-12 text-center text-slate-500">
+                        <td colSpan={10} className="py-12 text-center text-slate-500">
                           No reconciliation results match the selected filter or search query.
                         </td>
                       </tr>
@@ -361,6 +374,11 @@ export const ReconciliationResultsPage: React.FC = () => {
                               <StatusBadge status={result.status} />
                             </td>
 
+                            {/* Severity Badge */}
+                            <td className="py-2.5 px-3">
+                              <SeverityBadge severity={result.severity} />
+                            </td>
+
                             {/* PR Taxable */}
                             <td className="py-2.5 px-3 text-right font-mono text-slate-800">
                               {result.purchase_record ? formatCurrency(result.purchase_record.taxable_value) : '—'}
@@ -371,10 +389,14 @@ export const ReconciliationResultsPage: React.FC = () => {
                               {result.gstr2b_record ? formatCurrency(result.gstr2b_record.taxable_value) : '—'}
                             </td>
 
-                            {/* Differences Detected */}
-                            <td className="py-2.5 px-3 text-[11px]">
+                            {/* Differences Detected / Reason */}
+                            <td className="py-2.5 px-3 text-[11px] max-w-xs">
                               {result.status === 'MATCHED' ? (
                                 <span className="text-emerald-700 font-semibold font-mono">Matched (₹0.00)</span>
+                              ) : result.severity_reason ? (
+                                <div className="truncate text-slate-700" title={result.severity_reason}>
+                                  {result.severity_reason}
+                                </div>
                               ) : result.status === 'DUPLICATE_AMBIGUOUS' ? (
                                 <span className="text-amber-700 font-semibold flex items-center space-x-1">
                                   <AlertTriangle className="w-3 h-3 text-amber-600" />

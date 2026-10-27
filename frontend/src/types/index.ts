@@ -255,6 +255,9 @@ export interface BackendReconciliationResult {
   purchase_record_id?: number | null;
   gstr2b_record_id?: number | null;
   status: 'MATCHED' | 'MISMATCH' | 'MISSING_IN_GSTR2B' | 'MISSING_IN_PURCHASE_REGISTER' | 'DUPLICATE_AMBIGUOUS' | string;
+  severity?: 'MAJOR' | 'MINOR' | 'NONE' | 'UNCLASSIFIED' | string | null;
+  severity_reason?: string | null;
+  discrepancy_details?: Record<string, unknown> | null;
   differences: Record<string, { purchase_register?: string; gstr2b?: string; difference?: string }>;
   ambiguity_metadata?: Record<string, unknown> | null;
   created_at: string;
@@ -272,6 +275,10 @@ export interface BackendReconciliationSummary {
   missing_in_purchase_register: number;
   duplicate_ambiguous: number;
   total_missing: number;
+  major_discrepancies?: number;
+  minor_discrepancies?: number;
+  none_count?: number;
+  unclassified_count?: number;
 }
 
 export interface BackendReconciliationRunResponse {
@@ -291,3 +298,135 @@ export interface BackendJobDetail {
   gstr2b_records_count: number;
   summary?: BackendReconciliationSummary | null;
 }
+
+export interface VendorCommunicationRecord {
+  id: string;
+  job_id: string;
+  result_id: string;
+  supplier_gstin: string;
+  supplier_name?: string | null;
+  recipient_email: string;
+  cc_email?: string | null;
+  subject: string;
+  body: string;
+  template_type: 'standard' | 'urgent' | 'amendment';
+  status: 'DRAFT' | 'SENT' | 'FAILED' | string;
+  sending_mode: 'test' | 'live' | string;
+  error_message?: string | null;
+  sent_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BackendVendorActionItem {
+  id: string;
+  result_id: string;
+  job_id: string;
+  discrepancy_status: string;
+  supplier_name: string;
+  supplier_gstin: string;
+  invoice_number: string;
+  invoice_date: string;
+  total_value: number;
+  total_tax: number;
+  difference_amount: number;
+  reason: string;
+  recommended_action: string;
+  severity: 'major' | 'minor';
+  vendor_communication_status: 'not_contacted' | 'draft' | 'sent' | 'failed' | string;
+  vendor_email?: string | null;
+  purchase_record?: BackendRecordItem | null;
+  gstr2b_record?: BackendRecordItem | null;
+  latest_communication?: VendorCommunicationRecord | null;
+}
+
+export interface SmtpConfigStatus {
+  enabled: boolean;
+  test_mode: boolean;
+  test_recipient: string;
+  allowed_recipients: string[];
+  from_email: string;
+  from_name: string;
+  host: string;
+  port: number;
+  use_tls: boolean;
+  has_credentials: boolean;
+}
+
+export interface VendorContact {
+  id?: number;
+  supplier_gstin: string;
+  supplier_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  contact_person?: string | null;
+  notes?: string | null;
+}
+
+export interface DiscrepancyAuditLog {
+  id: string;
+  discrepancy_id: string;
+  job_id: string;
+  action: string;
+  previous_status?: string | null;
+  new_status: string;
+  previous_severity?: string | null;
+  new_severity?: string | null;
+  reviewer_name: string;
+  comments?: string | null;
+  created_at: string;
+}
+
+export interface DiscrepancyItem {
+  id: string;
+  job_id: string;
+  result_id: string;
+  discrepancy_type: string;
+  severity: 'MAJOR' | 'MINOR' | 'REVIEW_REQUIRED' | 'UNCLASSIFIED';
+  original_severity: string;
+  severity_reason: string;
+  rule_applied: string;
+  affected_fields: string[];
+  expected_and_actual: Record<string, unknown>;
+  difference_amount: string | number;
+  ai_explanation?: string | null;
+  ai_suggested_fields?: Record<string, unknown> | null;
+  verification_status: 'PENDING' | 'APPROVED' | 'OVERRIDDEN' | 'REQUIRES_VENDOR_CORRECTION' | 'INVESTIGATION_REQUIRED' | 'REJECTED' | 'RESOLVED';
+  requires_vendor_action: boolean;
+  resolution_notes?: string | null;
+  created_at: string;
+  updated_at: string;
+
+  supplier_gstin?: string;
+  supplier_name?: string;
+  invoice_number?: string;
+  invoice_date?: string;
+  purchase_record?: BackendRecordItem | null;
+  gstr2b_record?: BackendRecordItem | null;
+  audit_logs?: DiscrepancyAuditLog[];
+}
+
+export interface DiscrepancyVerificationRequest {
+  action: 'APPROVE' | 'REQUIRE_VENDOR_CORRECTION' | 'OVERRIDE_SEVERITY' | 'INVESTIGATE' | 'REJECT' | 'RESOLVE' | 'ADD_COMMENT';
+  reviewer_name?: string;
+  comments?: string;
+  override_severity?: 'MAJOR' | 'MINOR' | 'REVIEW_REQUIRED';
+  requires_vendor_action?: boolean;
+}
+
+export interface DiscrepancyVerificationResponse {
+  success: boolean;
+  message: string;
+  discrepancy: DiscrepancyItem;
+}
+
+export interface DiscrepancySummary {
+  total_discrepancies: number;
+  major_count: number;
+  minor_count: number;
+  review_required_count: number;
+  pending_verification_count: number;
+  requires_vendor_action_count: number;
+  approved_or_resolved_count: number;
+}
+

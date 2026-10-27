@@ -21,6 +21,7 @@ export const Sidebar: React.FC = () => {
     backendResults,
     backendSummary,
     pendingProposalsCount,
+    pendingDiscrepanciesCount,
     user, 
     logout, 
     businessProfile 
@@ -64,10 +65,10 @@ export const Sidebar: React.FC = () => {
   const secondaryNavItems: { id: ActivePage; label: string; icon: React.FC<{ className?: string }>; badge?: number; badgeColor?: string }[] = [
     {
       id: 'discrepancies',
-      label: 'Invoices to Check',
+      label: 'Human Verification',
       icon: AlertTriangle,
-      badge: discrepanciesCount > 0 ? discrepanciesCount : undefined,
-      badgeColor: 'bg-rose-100 text-rose-800 font-semibold',
+      badge: pendingDiscrepanciesCount > 0 ? pendingDiscrepanciesCount : (discrepanciesCount > 0 ? discrepanciesCount : undefined),
+      badgeColor: 'bg-amber-100 text-amber-800 font-bold',
     },
     {
       id: 'vendor',

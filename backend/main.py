@@ -3,11 +3,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 try:
-    from .app.config import CORS_ORIGINS
+    from .app.config import CORS_ORIGINS, validate_ai_configuration
     from .app.database import init_db
     from .app.api.reconciliation import router as reconciliation_router
 except (ImportError, ValueError):
-    from app.config import CORS_ORIGINS
+    from app.config import CORS_ORIGINS, validate_ai_configuration
     from app.database import init_db
     from app.api.reconciliation import router as reconciliation_router
 
@@ -27,6 +27,19 @@ async def lifespan(app: FastAPI):
         logger.info("Database tables initialized successfully.")
     except Exception as e:
         logger.error("Error creating database tables: %s", e)
+
+    # Validate and log AI configuration safely
+    is_configured, status_msg, metadata = validate_ai_configuration()
+    if is_configured:
+        logger.info(
+            "AI Provider active: %s (model: %s, key_configured: %s)",
+            metadata.get("provider"),
+            metadata.get("model"),
+            metadata.get("key_present"),
+        )
+    else:
+        logger.info("AI Provider status: %s", status_msg)
+
     yield
 
 

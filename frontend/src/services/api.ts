@@ -317,11 +317,14 @@ export const api = {
   // Real Backend Reconciliation Results
   async getReconciliationResults(
     jobId: string, 
-    params?: { status?: string; search?: string }
+    params?: { status?: string; severity?: string; search?: string }
   ): Promise<BackendReconciliationResult[]> {
     const query = new URLSearchParams();
     if (params?.status && params.status !== 'all') {
       query.append('status_filter', params.status);
+    }
+    if (params?.severity && params.severity !== 'all') {
+      query.append('severity_filter', params.severity);
     }
     if (params?.search && params.search.trim()) {
       query.append('search', params.search.trim());
@@ -371,6 +374,161 @@ export const api = {
     const response = await fetch(`/api/reconciliation/${jobId}/results/${resultId}/explanation`);
     if (!response.ok) {
       throw new Error(`Failed to fetch discrepancy explanation for result ${resultId}`);
+    }
+    return response.json();
+  },
+
+  // Real Backend Vendor Communications
+  async getVendorCommunications(jobId?: string): Promise<import('../types').BackendVendorActionItem[]> {
+    const url = jobId 
+      ? `/api/reconciliation/vendor-communications?job_id=${encodeURIComponent(jobId)}`
+      : '/api/reconciliation/vendor-communications';
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error('Failed to fetch vendor communication records');
+    }
+    return response.json();
+  },
+
+  async getVendorCommunicationHistory(resultId: string): Promise<import('../types').VendorCommunicationRecord[]> {
+    const response = await fetch(`/api/reconciliation/vendor-communications/${encodeURIComponent(resultId)}/history`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch history for result ${resultId}`);
+    }
+    return response.json();
+  },
+
+  async saveVendorCommunicationDraft(
+    resultId: string,
+    payload: {
+      recipient_email: string;
+      cc_email?: string | null;
+      subject: string;
+      body: string;
+      template_type: string;
+      supplier_name?: string | null;
+    }
+  ): Promise<import('../types').VendorCommunicationRecord> {
+    const response = await fetch(`/api/reconciliation/vendor-communications/${encodeURIComponent(resultId)}/draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: 'Failed to save notice draft' }));
+      throw new Error(err.detail || 'Failed to save notice draft');
+    }
+    return response.json();
+  },
+
+  async sendVendorNotice(
+    resultId: string,
+    payload: {
+      recipient_email: string;
+      cc_email?: string | null;
+      subject: string;
+      body: string;
+      template_type: string;
+      supplier_name?: string | null;
+    }
+  ): Promise<{ success: boolean; message: string; communication: import('../types').VendorCommunicationRecord; smtp_mode: string }> {
+    const response = await fetch(`/api/reconciliation/vendor-communications/${encodeURIComponent(resultId)}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: 'Failed to dispatch email' }));
+      throw new Error(err.detail || 'Failed to dispatch notice email');
+    }
+    return response.json();
+  },
+
+  async getSmtpConfig(): Promise<import('../types').SmtpConfigStatus> {
+    const response = await fetch('/api/reconciliation/smtp/status');
+    if (!response.ok) {
+      throw new Error('Failed to fetch SMTP configuration status');
+    }
+    return response.json();
+  },
+
+  async getVendorContacts(): Promise<import('../types').VendorContact[]> {
+    const response = await fetch('/api/reconciliation/vendor-contacts');
+    if (!response.ok) {
+      throw new Error('Failed to fetch vendor contacts');
+    }
+    return response.json();
+  },
+
+  async upsertVendorContact(contact: import('../types').VendorContact): Promise<import('../types').VendorContact> {
+    const response = await fetch('/api/reconciliation/vendor-contacts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(contact),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to save vendor contact');
+    }
+    return response.json();
+  },
+
+  // Discrepancy Analysis & Human Verification
+  async getJobDiscrepancies(
+    jobId: string,
+    filters?: { severity?: string; verification_status?: string; requires_vendor_action?: boolean }
+  ): Promise<import('../types').DiscrepancyItem[]> {
+    const params = new URLSearchParams();
+    if (filters?.severity) params.set('severity', filters.severity);
+    if (filters?.verification_status) params.set('verification_status', filters.verification_status);
+    if (filters?.requires_vendor_action !== undefined) {
+      params.set('requires_vendor_action', String(filters.requires_vendor_action));
+    }
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const response = await fetch(`/api/reconciliation/jobs/${encodeURIComponent(jobId)}/discrepancies${qs}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch job discrepancies');
+    }
+    return response.json();
+  },
+
+  async getJobDiscrepancySummary(jobId: string): Promise<import('../types').DiscrepancySummary> {
+    const response = await fetch(`/api/reconciliation/jobs/${encodeURIComponent(jobId)}/discrepancies/summary`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch discrepancy summary');
+    }
+    return response.json();
+  },
+
+  async getDiscrepancyItem(discrepancyId: string): Promise<import('../types').DiscrepancyItem> {
+    const response = await fetch(`/api/reconciliation/discrepancies/${encodeURIComponent(discrepancyId)}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch discrepancy details');
+    }
+    return response.json();
+  },
+
+  async verifyDiscrepancy(
+    discrepancyId: string,
+    request: import('../types').DiscrepancyVerificationRequest
+  ): Promise<import('../types').DiscrepancyVerificationResponse> {
+    const response = await fetch(`/api/reconciliation/discrepancies/${encodeURIComponent(discrepancyId)}/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: 'Failed to verify discrepancy' }));
+      throw new Error(err.detail || 'Failed to verify discrepancy');
+    }
+    return response.json();
+  },
+
+  async reanalyzeJobDiscrepancies(jobId: string): Promise<{ success: boolean; discrepancies_count: number; summary: import('../types').DiscrepancySummary }> {
+    const response = await fetch(`/api/reconciliation/jobs/${encodeURIComponent(jobId)}/analyze-discrepancies`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      throw new Error('Failed to analyze discrepancies');
     }
     return response.json();
   },

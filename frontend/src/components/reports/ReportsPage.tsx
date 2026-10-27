@@ -55,6 +55,8 @@ Missing in GSTR-2B,${summary?.missing_in_gstr2b ?? 0}
 Missing in Purchase Register,${summary?.missing_in_purchase_register ?? 0}
 Duplicate Ambiguous Records,${summary?.duplicate_ambiguous ?? 0}
 Total Discrepancies,${discrepancies}
+Major Discrepancies,${summary?.major_discrepancies ?? 0}
+Minor Discrepancies,${summary?.minor_discrepancies ?? 0}
 `;
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -283,32 +285,42 @@ Total Discrepancies,${discrepancies}
                 <h4 className="font-bold text-slate-800 uppercase tracking-wider text-[11px] mb-2.5">
                   Authoritative Matching Statistics
                 </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
                   <div className="p-2.5 bg-slate-50 border border-slate-200 rounded">
-                    <div className="text-[10px] text-slate-500">Evaluated Records</div>
+                    <div className="text-[10px] text-slate-500">Evaluated</div>
                     <div className="font-mono font-bold text-sm text-slate-900 mt-0.5">
                       {selectedJobForView.summary?.total_results ?? 
                         (selectedJobForView.purchase_records_count + selectedJobForView.gstr2b_records_count)}
                     </div>
                   </div>
                   <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded">
-                    <div className="text-[10px] text-emerald-800 font-medium">Exact Matched</div>
+                    <div className="text-[10px] text-emerald-800 font-medium">Matched</div>
                     <div className="font-mono font-bold text-sm text-emerald-800 mt-0.5">
                       {selectedJobForView.summary?.matched ?? '—'}
                     </div>
                   </div>
                   <div className="p-2.5 bg-rose-50 border border-rose-200 rounded">
-                    <div className="text-[10px] text-rose-800 font-medium">Mismatched</div>
+                    <div className="text-[10px] text-rose-800 font-medium">Major</div>
                     <div className="font-mono font-bold text-sm text-rose-800 mt-0.5">
-                      {selectedJobForView.summary?.mismatched ?? '—'}
+                      {selectedJobForView.summary?.major_discrepancies ?? '—'}
                     </div>
                   </div>
                   <div className="p-2.5 bg-amber-50 border border-amber-200 rounded">
-                    <div className="text-[10px] text-amber-800 font-medium">Missing / Ambiguous</div>
+                    <div className="text-[10px] text-amber-800 font-medium">Minor</div>
                     <div className="font-mono font-bold text-sm text-amber-800 mt-0.5">
-                      {selectedJobForView.summary 
-                        ? (selectedJobForView.summary.total_missing + selectedJobForView.summary.duplicate_ambiguous) 
-                        : '—'}
+                      {selectedJobForView.summary?.minor_discrepancies ?? '—'}
+                    </div>
+                  </div>
+                  <div className="p-2.5 bg-indigo-50 border border-indigo-200 rounded">
+                    <div className="text-[10px] text-indigo-800 font-medium">Missing</div>
+                    <div className="font-mono font-bold text-sm text-indigo-800 mt-0.5">
+                      {selectedJobForView.summary?.total_missing ?? '—'}
+                    </div>
+                  </div>
+                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded">
+                    <div className="text-[10px] text-slate-600 font-medium">Ambiguous</div>
+                    <div className="font-mono font-bold text-sm text-slate-700 mt-0.5">
+                      {selectedJobForView.summary?.duplicate_ambiguous ?? '—'}
                     </div>
                   </div>
                 </div>

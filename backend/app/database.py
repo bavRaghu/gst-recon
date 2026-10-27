@@ -35,6 +35,23 @@ def get_db():
 
 
 def init_db():
-    """Create all tables defined in models."""
+    """Create all tables defined in models and ensure backward-compatible columns exist."""
     from . import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
+
+    # Safe migration check for existing tables
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(engine)
+        if "reconciliation_results" in inspector.get_table_names():
+            columns = [c["name"] for c in inspector.get_columns("reconciliation_results")]
+            with engine.begin() as conn:
+                if "severity" not in columns:
+                    conn.execute(text("ALTER TABLE reconciliation_results ADD COLUMN severity VARCHAR(32) DEFAULT 'UNCLASSIFIED'"))
+                if "severity_reason" not in columns:
+                    conn.execute(text("ALTER TABLE reconciliation_results ADD COLUMN severity_reason TEXT"))
+                if "discrepancy_details" not in columns:
+                    col_type = "JSON" if not str(engine.url).startswith("sqlite") else "TEXT"
+                    conn.execute(text(f"ALTER TABLE reconciliation_results ADD COLUMN discrepancy_details {col_type}"))
+    except Exception as ex:
+        logger.warning("Safe migration check completed or skipped: %s", ex)

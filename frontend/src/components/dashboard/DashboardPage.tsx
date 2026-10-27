@@ -184,9 +184,16 @@ export const DashboardPage: React.FC = () => {
                 {needsAttentionCount}
               </span>
               <span className="text-xs text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded">
-                {needsAttentionCount > 0 ? 'Requires action' : 'Zero issues'}
+                {backendSummary?.major_discrepancies ? `${backendSummary.major_discrepancies} Major` : (needsAttentionCount > 0 ? 'Requires action' : 'Zero issues')}
               </span>
             </div>
+            {backendSummary && (
+              <div className="mt-1.5 text-[11px] font-mono text-slate-500 flex items-center space-x-2">
+                <span className="text-rose-700 font-semibold">{backendSummary.major_discrepancies ?? 0} Major</span>
+                <span>•</span>
+                <span className="text-amber-700 font-semibold">{backendSummary.minor_discrepancies ?? 0} Minor</span>
+              </div>
+            )}
           </div>
 
           {/* Card 4: Suggested Matches to Review */}

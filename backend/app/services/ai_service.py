@@ -28,8 +28,106 @@ class CandidateEvaluation(BaseModel):
     candidate_id: int
     is_match: bool
     confidence: str = Field(..., pattern="^(HIGH|MEDIUM|LOW|UNCERTAIN)$")
+    confidence_score: Optional[float] = None
     reasoning: str
     conflicting_evidence: Optional[str] = None
+    field_comparison: Optional[Dict[str, Any]] = None
+    requires_human_review: Optional[bool] = True
+
+
+def build_field_comparison(pr: PurchaseRecord, twob: Gstr2bRecord) -> Dict[str, Any]:
+    """Generates a field-level comparison between PR source and GSTR-2B candidate."""
+    s1 = pr.invoice_number.strip().upper()
+    s2 = twob.invoice_number.strip().upper()
+    return {
+        "invoice_number": {
+            "source": pr.invoice_number,
+            "candidate": twob.invoice_number,
+            "match": s1 == s2,
+            "type": "exact" if s1 == s2 else "format_variation",
+        },
+        "invoice_date": {
+            "source": str(pr.invoice_date),
+            "candidate": str(twob.invoice_date),
+            "match": pr.invoice_date == twob.invoice_date,
+        },
+        "taxable_value": {
+            "source": f"{pr.taxable_value:.2f}",
+            "candidate": f"{twob.taxable_value:.2f}",
+            "difference": f"{(pr.taxable_value - twob.taxable_value):.2f}",
+            "match": abs(pr.taxable_value - twob.taxable_value) <= Decimal("1.00"),
+        },
+        "cgst": {
+            "source": f"{pr.cgst:.2f}",
+            "candidate": f"{twob.cgst:.2f}",
+            "difference": f"{(pr.cgst - twob.cgst):.2f}",
+            "match": abs(pr.cgst - twob.cgst) <= Decimal("1.00"),
+        },
+        "sgst": {
+            "source": f"{pr.sgst:.2f}",
+            "candidate": f"{twob.sgst:.2f}",
+            "difference": f"{(pr.sgst - twob.sgst):.2f}",
+            "match": abs(pr.sgst - twob.sgst) <= Decimal("1.00"),
+        },
+        "igst": {
+            "source": f"{pr.igst:.2f}",
+            "candidate": f"{twob.igst:.2f}",
+            "difference": f"{(pr.igst - twob.igst):.2f}",
+            "match": abs(pr.igst - twob.igst) <= Decimal("1.00"),
+        },
+    }
+
+
+def generate_discrepancy_explanation(result: ReconciliationResult) -> Dict[str, Any]:
+    """
+    Generates a simple plain-English explanation for an invoice discrepancy based
+    strictly on actual stored fields without inventing reasons or ITC legal assumptions.
+    """
+    pr = result.purchase_record
+    twob = result.gstr2b_record
+    status = result.status
+    diffs = result.differences or {}
+
+    details = []
+    if status == "MATCHED":
+        summary = "Invoice matched completely with zero tax discrepancies."
+    elif status == "MISSING_IN_GSTR2B":
+        inv = pr.invoice_number if pr else "N/A"
+        taxable = f"₹{pr.taxable_value:,.2f}" if pr else ""
+        summary = f"Invoice {inv} ({taxable}) is in your books, but the supplier has not filed it in GSTR-2B."
+        details.append("Under GST Section 16(2)(aa), input tax credit cannot be claimed in GSTR-3B until the supplier files their GSTR-1.")
+        details.append("Contact the supplier to upload this invoice in their current tax return.")
+    elif status == "MISSING_IN_PURCHASE_REGISTER":
+        inv = twob.invoice_number if twob else "N/A"
+        taxable = f"₹{twob.taxable_value:,.2f}" if twob else ""
+        summary = f"Supplier filed Invoice {inv} ({taxable}) in GSTR-2B, but it is not recorded in your accounting books."
+        details.append("Verify whether goods or services for this invoice were received.")
+        details.append("Enter the purchase into your accounting software to claim input tax credit.")
+    elif status == "DUPLICATE_AMBIGUOUS":
+        summary = "Duplicate invoices detected with identical invoice number and supplier GSTIN."
+        details.append("Review whether this is an accidental duplicate entry in your accounting books or an amended supplier filing.")
+    else:  # MISMATCH
+        diff_items = []
+        if "taxable_value" in diffs:
+            d = diffs["taxable_value"]
+            diff_items.append(f"Taxable value differs by ₹{d.get('difference', '0.00')} (Books: ₹{d.get('pr_value')}, GSTR-2B: ₹{d.get('gstr2b_value')})")
+        if "cgst" in diffs or "sgst" in diffs:
+            cgst_d = diffs.get("cgst", {}).get("difference", "0.00")
+            sgst_d = diffs.get("sgst", {}).get("difference", "0.00")
+            diff_items.append(f"CGST/SGST differs (CGST diff: ₹{cgst_d}, SGST diff: ₹{sgst_d})")
+        if "igst" in diffs:
+            igst_d = diffs.get("igst", {}).get("difference", "0.00")
+            diff_items.append(f"IGST differs by ₹{igst_d}")
+        if "invoice_date" in diffs:
+            d = diffs["invoice_date"]
+            diff_items.append(f"Invoice date differs (Books: {d.get('pr_value')}, GSTR-2B: {d.get('gstr2b_value')})")
+
+        summary = "Tax or value discrepancy detected between Purchase Register and GSTR-2B."
+        details.extend(diff_items)
+        details.append("Check the supplier physical invoice against the uploaded GSTR-2B statement to verify the correct tax amounts.")
+
+    return {"result_id": result.id, "summary": summary, "details": details}
+
 
 
 class BatchAIEvaluationResponse(BaseModel):
@@ -181,6 +279,18 @@ async def evaluate_candidates_with_llm(
                 raise httpx.TimeoutException("LLM request timed out")
             if isinstance(mock_data, str) and mock_data == "MALFORMED":
                 return [], "Malformed JSON response from mock provider"
+            if isinstance(mock_data, str) and mock_data not in ("TIMEOUT", "MALFORMED"):
+                try:
+                    clean = mock_data.strip()
+                    if clean.startswith("```"):
+                        clean = re.sub(r"^```(?:json)?\s*", "", clean)
+                        clean = re.sub(r"\s*```$", "", clean)
+                    parsed_dict = json.loads(clean)
+                    parsed = BatchAIEvaluationResponse.model_validate(parsed_dict)
+                    valid_evals = [e for e in parsed.evaluations if e.candidate_id in candidate_id_set]
+                    return valid_evals, None
+                except Exception as ex:
+                    return [], f"Failed to parse mock string: {ex}"
             if isinstance(mock_data, dict):
                 try:
                     parsed = BatchAIEvaluationResponse.model_validate(mock_data)
@@ -244,7 +354,7 @@ async def evaluate_candidates_with_llm(
         '      "candidate_id": <int>,\n'
         '      "is_match": <bool>,\n'
         '      "confidence": "HIGH" | "MEDIUM" | "LOW" | "UNCERTAIN",\n'
-        '      "reasoning": "<concise explanation>",\n'
+        '      "reasoning": "<concise explanation in 1-2 sentences>",\n'
         '      "conflicting_evidence": "<optional notes or null>"\n'
         '    }\n'
         '  ]\n'
@@ -269,14 +379,35 @@ async def evaluate_candidates_with_llm(
                     ],
                     "temperature": 0.0,
                     "response_format": {"type": "json_object"},
-                    "max_tokens": 500,
+                    "max_tokens": 2048,
+                }
+                resp = await client.post(url, headers=headers, json=body)
+                resp.raise_for_status()
+                resp_json = resp.json()
+                raw_content = resp_json["choices"][0]["message"]["content"]
+            elif provider == "mistral":
+                url = "https://api.mistral.ai/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                }
+                body = {
+                    "model": model or "mistral-small-latest",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    "temperature": 0.0,
+                    "response_format": {"type": "json_object"},
+                    "max_tokens": 2048,
                 }
                 resp = await client.post(url, headers=headers, json=body)
                 resp.raise_for_status()
                 resp_json = resp.json()
                 raw_content = resp_json["choices"][0]["message"]["content"]
             elif provider == "gemini":
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model or 'gemini-1.5-flash'}:generateContent?key={api_key}"
+                active_model = model or "gemini-3.5-flash"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
                 headers = {"Content-Type": "application/json"}
                 body = {
                     "contents": [
@@ -289,7 +420,7 @@ async def evaluate_candidates_with_llm(
                     "generationConfig": {
                         "temperature": 0.0,
                         "responseMimeType": "application/json",
-                        "maxOutputTokens": 500,
+                        "maxOutputTokens": 2048,
                     },
                 }
                 resp = await client.post(url, headers=headers, json=body)
@@ -299,7 +430,11 @@ async def evaluate_candidates_with_llm(
             else:
                 return [], f"Unsupported LLM provider: {provider}"
 
-        parsed_data = json.loads(raw_content)
+        clean_json = raw_content.strip()
+        if clean_json.startswith("```"):
+            clean_json = re.sub(r"^```(?:json)?\s*", "", clean_json)
+            clean_json = re.sub(r"\s*```$", "", clean_json)
+        parsed_data = json.loads(clean_json)
         parsed = BatchAIEvaluationResponse.model_validate(parsed_data)
 
         # Validation: Verify every candidate_id was in the candidate set
@@ -386,9 +521,13 @@ async def run_ai_assisted_matching(
                     candidate_record_id=cand.id,
                     assessment_status="UNAVAILABLE",
                     confidence="UNCERTAIN",
-                    reasoning="AI provider is not configured. Deterministic reconciliation completed.",
+                    reasoning="AI suggestions are currently unavailable. Your invoices have still been reconciled using the standard matching rules.",
                     conflicting_evidence=None,
-                    model_metadata={"provider": "none", "status": "unconfigured"},
+                    model_metadata={
+                        "provider": effective_provider or "none",
+                        "status": "unconfigured",
+                        "technical_reason": "AI provider is not configured. Set GEMINI_API_KEY or LLM_API_KEY in backend/.env",
+                    },
                 )
                 db.add(prop)
                 summary["proposals_skipped"] += 1
@@ -411,6 +550,7 @@ async def run_ai_assisted_matching(
 
             if error_msg and not evaluations:
                 # Provider error: persist proposal with ERROR or UNAVAILABLE status
+                logger.warning("AI candidate matching provider error: %s", error_msg)
                 for cand in task["candidates"]:
                     prop = ReconciliationProposal(
                         job_id=job_id,
@@ -422,7 +562,11 @@ async def run_ai_assisted_matching(
                         confidence="UNCERTAIN",
                         reasoning=f"AI assessment unavailable: {error_msg}",
                         conflicting_evidence=None,
-                        model_metadata={"provider": effective_provider, "error": error_msg},
+                        model_metadata={
+                            "provider": effective_provider, 
+                            "error": error_msg,
+                            "technical_reason": error_msg,
+                        },
                     )
                     db.add(prop)
                     summary["proposals_skipped"] += 1
@@ -431,6 +575,22 @@ async def run_ai_assisted_matching(
             for ev in evaluations:
                 # Assessment status is PROPOSED only if model says is_match and confidence is high/medium
                 status = "PROPOSED" if ev.is_match and ev.confidence in ("HIGH", "MEDIUM") else "REJECTED"
+                cand_match = next((c for c in task["candidates"] if c.id == ev.candidate_id), None)
+                field_comp = ev.field_comparison
+                if not field_comp and cand_match:
+                    field_comp = build_field_comparison(pr, cand_match)
+
+                conf_score = ev.confidence_score
+                if conf_score is None:
+                    if ev.confidence == "HIGH":
+                        conf_score = 0.95
+                    elif ev.confidence == "MEDIUM":
+                        conf_score = 0.75
+                    elif ev.confidence == "LOW":
+                        conf_score = 0.40
+                    else:
+                        conf_score = 0.15
+
                 prop = ReconciliationProposal(
                     job_id=job_id,
                     result_id=task["result_id"],
@@ -445,6 +605,9 @@ async def run_ai_assisted_matching(
                         "provider": effective_provider,
                         "model": effective_model,
                         "similarity": task["similarities"].get(ev.candidate_id),
+                        "confidence_score": conf_score,
+                        "field_comparison": field_comp,
+                        "requires_human_review": True,
                     },
                 )
                 db.add(prop)

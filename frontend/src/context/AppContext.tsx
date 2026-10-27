@@ -14,6 +14,9 @@ import type {
   BackendReconciliationRunResponse,
   BackendJobDetail,
   BackendProposalItem,
+  DiscrepancyItem,
+  DiscrepancySummary,
+  DiscrepancyVerificationRequest,
 } from '../types';
 import { api } from '../services/api';
 
@@ -49,6 +52,12 @@ interface AppContextType {
   setBackendProposals: (proposals: BackendProposalItem[]) => void;
   pendingProposalsCount: number;
   reviewProposal: (proposalId: string, action: 'CONFIRM_MATCH' | 'REJECT_MATCH', notes?: string) => Promise<void>;
+  discrepancyItems: DiscrepancyItem[];
+  setDiscrepancyItems: (items: DiscrepancyItem[]) => void;
+  discrepancySummary: DiscrepancySummary | null;
+  pendingDiscrepanciesCount: number;
+  refreshDiscrepancies: () => Promise<void>;
+  verifyDiscrepancy: (discrepancyId: string, req: DiscrepancyVerificationRequest) => Promise<void>;
   selectedBackendResult: BackendReconciliationResult | null;
   setSelectedBackendResult: (result: BackendReconciliationResult | null) => void;
   isReconciling: boolean;
@@ -98,6 +107,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [backendResults, setBackendResults] = useState<BackendReconciliationResult[]>([]);
   const [backendSummary, setBackendSummary] = useState<BackendReconciliationSummary | null>(null);
   const [backendProposals, setBackendProposals] = useState<BackendProposalItem[]>([]);
+  const [discrepancyItems, setDiscrepancyItems] = useState<DiscrepancyItem[]>([]);
+  const [discrepancySummary, setDiscrepancySummary] = useState<DiscrepancySummary | null>(null);
   const [selectedBackendResult, setSelectedBackendResult] = useState<BackendReconciliationResult | null>(null);
   const [isReconciling, setIsReconciling] = useState<boolean>(false);
 
@@ -113,6 +124,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBackendSummary(null);
     setBackendResults([]);
     setBackendProposals([]);
+    setDiscrepancyItems([]);
+    setDiscrepancySummary(null);
     setSelectedBackendResult(null);
     setBackendUploadSummary(null);
   };
@@ -192,17 +205,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           if (jobDetails.summary) {
             setBackendSummary(jobDetails.summary);
-            const [res, props] = await Promise.all([
+            const [res, props, discs, discSum] = await Promise.all([
               api.getReconciliationResults(currentJobId),
-              api.getReconciliationProposals(currentJobId).catch(() => [])
+              api.getReconciliationProposals(currentJobId).catch(() => []),
+              api.getJobDiscrepancies(currentJobId).catch(() => []),
+              api.getJobDiscrepancySummary(currentJobId).catch(() => null),
             ]);
             setBackendResults(res);
             setBackendProposals(props);
+            setDiscrepancyItems(discs);
+            setDiscrepancySummary(discSum);
           } else {
             // Newly uploaded job that has NOT been reconciled yet
             setBackendSummary(null);
             setBackendResults([]);
             setBackendProposals([]);
+            setDiscrepancyItems([]);
+            setDiscrepancySummary(null);
           }
         } catch (err) {
           console.warn(`Job ${currentJobId} failed to load from backend:`, err);
@@ -244,12 +263,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const resp = await api.runReconciliation(activeJobId, tolerance);
       setBackendSummary(resp.summary);
-      const [results, proposals] = await Promise.all([
+      const [results, proposals, discs, discSum] = await Promise.all([
         api.getReconciliationResults(activeJobId),
-        api.getReconciliationProposals(activeJobId).catch(() => [])
+        api.getReconciliationProposals(activeJobId).catch(() => []),
+        api.getJobDiscrepancies(activeJobId).catch(() => []),
+        api.getJobDiscrepancySummary(activeJobId).catch(() => null),
       ]);
       setBackendResults(results);
       setBackendProposals(proposals);
+      setDiscrepancyItems(discs);
+      setDiscrepancySummary(discSum);
 
       // Refresh jobs list so job status updates in background
       api.listJobs().then(setBackendJobs).catch(() => {});
@@ -290,6 +313,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw err;
     }
   };
+
+  const refreshDiscrepancies = async () => {
+    if (!activeJobId) return;
+    try {
+      const [discs, discSum] = await Promise.all([
+        api.getJobDiscrepancies(activeJobId),
+        api.getJobDiscrepancySummary(activeJobId),
+      ]);
+      setDiscrepancyItems(discs);
+      setDiscrepancySummary(discSum);
+    } catch (err) {
+      console.warn('Failed to refresh discrepancies:', err);
+    }
+  };
+
+  const verifyDiscrepancy = async (discrepancyId: string, req: DiscrepancyVerificationRequest) => {
+    if (!activeJobId) return;
+    try {
+      const resp = await api.verifyDiscrepancy(discrepancyId, {
+        ...req,
+        reviewer_name: req.reviewer_name || user.name,
+      });
+      showNotification(resp.message, 'success');
+      await refreshDiscrepancies();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Verification failed';
+      showNotification(msg, 'error');
+      throw err;
+    }
+  };
+
+  const pendingDiscrepanciesCount = discrepancySummary?.pending_verification_count
+    ?? discrepancyItems.filter(d => d.verification_status === 'PENDING').length;
 
   const fetchBackendResults = async (statusFilter?: string, search?: string): Promise<BackendReconciliationResult[]> => {
     if (!activeJobId) return [];
@@ -409,6 +465,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setBackendProposals,
         pendingProposalsCount,
         reviewProposal,
+        discrepancyItems,
+        setDiscrepancyItems,
+        discrepancySummary,
+        pendingDiscrepanciesCount,
+        refreshDiscrepancies,
+        verifyDiscrepancy,
         selectedBackendResult,
         setSelectedBackendResult,
         isReconciling,

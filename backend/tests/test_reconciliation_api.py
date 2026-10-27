@@ -265,3 +265,142 @@ def test_api_search_filter_results(client):
     search_beta = client.get(f"/api/reconciliation/{job_id}/results?search=BETA").json()
     assert len(search_beta) == 1
     assert search_beta[0]["purchase_record"]["invoice_number"] == "BETA-02"
+
+
+def test_api_proposal_human_review_confirm(client, db_session):
+    """Tests human review confirmation of an AI proposal and authoritative update."""
+    pr_rows = [["27AABCT3421M1Z2", "INV/2026/089", "2026-09-01", "25000.00", "2250.00", "2250.00", "0.00"]]
+    twob_rows = [["27AABCT3421M1Z2", "INV-2026-089", "01/09/2026", "25000.00", "2250.00", "2250.00", "0.00"]]
+
+    pr_csv = make_csv_bytes(HEADERS, pr_rows)
+    twob_csv = make_csv_bytes(HEADERS, twob_rows)
+
+    up = client.post("/api/reconciliation/upload", files={"purchase_register": ("pr.csv", pr_csv, "text/csv"), "gstr_2b": ("2b.csv", twob_csv, "text/csv")}).json()
+    job_id = up["job_id"]
+
+    twob_rec = db_session.query(Gstr2bRecord).filter(Gstr2bRecord.job_id == job_id).first()
+
+    set_mock_ai_response("all", {
+        "evaluations": [{
+            "candidate_id": twob_rec.id,
+            "is_match": True,
+            "confidence": "HIGH",
+            "reasoning": "Identical invoice number with syntax variation.",
+            "conflicting_evidence": None,
+        }]
+    })
+
+    import app.config as cfg
+    orig_provider = cfg.LLM_PROVIDER
+    cfg.LLM_PROVIDER = "mock"
+    try:
+        run_res = client.post(f"/api/reconciliation/{job_id}/run").json()
+        assert run_res["status"] == "COMPLETED"
+
+        proposals = client.get(f"/api/reconciliation/{job_id}/proposals").json()
+        assert len(proposals) == 1
+        prop_id = proposals[0]["id"]
+        assert proposals[0]["assessment_status"] == "PROPOSED"
+        assert proposals[0]["source_record"]["invoice_number"] == "INV/2026/089"
+        assert proposals[0]["candidate_record"]["invoice_number"] == "INV-2026-089"
+
+        # Explicit human review: Confirm Match
+        review_res = client.post(
+            f"/api/reconciliation/{job_id}/proposals/{prop_id}/review",
+            json={"action": "CONFIRM_MATCH", "reviewer_name": "Senior Accountant", "notes": "Approved syntax difference"}
+        )
+        assert review_res.status_code == 200
+        review_data = review_res.json()
+        assert review_data["success"] is True
+        assert review_data["proposal"]["assessment_status"] == "CONFIRMED"
+        assert len(review_data["proposal"]["audit_logs"]) == 1
+        assert review_data["proposal"]["audit_logs"][0]["action"] == "CONFIRM_MATCH"
+        assert review_data["proposal"]["audit_logs"][0]["reviewed_by"] == "Senior Accountant"
+
+        # Check authoritative results: Must now be MATCHED
+        results = client.get(f"/api/reconciliation/{job_id}/results").json()
+        assert len(results) == 1
+        assert results[0]["status"] == "MATCHED"
+        assert results[0]["purchase_record"]["invoice_number"] == "INV/2026/089"
+        assert results[0]["gstr2b_record"]["invoice_number"] == "INV-2026-089"
+        assert results[0]["ambiguity_metadata"]["manually_confirmed"] is True
+
+        # Ensure original database records were NOT deleted or mutated
+        pr_in_db = db_session.query(PurchaseRecord).filter(PurchaseRecord.job_id == job_id).first()
+        assert pr_in_db.invoice_number == "INV/2026/089"
+        twob_in_db = db_session.query(Gstr2bRecord).filter(Gstr2bRecord.job_id == job_id).first()
+        assert twob_in_db.invoice_number == "INV-2026-089"
+    finally:
+        cfg.LLM_PROVIDER = orig_provider
+
+
+def test_api_proposal_human_review_reject(client, db_session):
+    """Tests human review rejection of an AI proposal."""
+    pr_rows = [["27AABCT3421M1Z2", "BILL-100", "2026-09-01", "1000.00", "90.00", "90.00", "0.00"]]
+    twob_rows = [["27AABCT3421M1Z2", "BILL-101", "01/09/2026", "1000.00", "90.00", "90.00", "0.00"]]
+
+    pr_csv = make_csv_bytes(HEADERS, pr_rows)
+    twob_csv = make_csv_bytes(HEADERS, twob_rows)
+
+    up = client.post("/api/reconciliation/upload", files={"purchase_register": ("pr.csv", pr_csv, "text/csv"), "gstr_2b": ("2b.csv", twob_csv, "text/csv")}).json()
+    job_id = up["job_id"]
+
+    twob_rec = db_session.query(Gstr2bRecord).filter(Gstr2bRecord.job_id == job_id).first()
+
+    set_mock_ai_response("all", {
+        "evaluations": [{
+            "candidate_id": twob_rec.id,
+            "is_match": True,
+            "confidence": "MEDIUM",
+            "reasoning": "Sequential invoice number.",
+            "conflicting_evidence": None,
+        }]
+    })
+
+    import app.config as cfg
+    orig_provider = cfg.LLM_PROVIDER
+    cfg.LLM_PROVIDER = "mock"
+    try:
+        client.post(f"/api/reconciliation/{job_id}/run")
+        proposals = client.get(f"/api/reconciliation/{job_id}/proposals").json()
+        prop_id = proposals[0]["id"]
+
+        # Reject match
+        review_res = client.post(
+            f"/api/reconciliation/{job_id}/proposals/{prop_id}/review",
+            json={"action": "REJECT_MATCH", "reviewer_name": "Accountant", "notes": "Different invoice"}
+        )
+        assert review_res.status_code == 200
+        review_data = review_res.json()
+        assert review_data["proposal"]["assessment_status"] == "USER_REJECTED"
+        assert len(review_data["proposal"]["audit_logs"]) == 1
+        assert review_data["proposal"]["audit_logs"][0]["action"] == "REJECT_MATCH"
+
+        # Results must remain unresolved / missing
+        results = client.get(f"/api/reconciliation/{job_id}/results").json()
+        assert any(r["status"] == "MISSING_IN_GSTR2B" for r in results)
+    finally:
+        cfg.LLM_PROVIDER = orig_provider
+
+
+def test_api_discrepancy_explanation(client):
+    """Tests plain-English discrepancy explanation endpoint."""
+    pr_rows = [["27AABCT3421M1Z2", "INV-MISMATCH", "2026-09-01", "50000.00", "4500.00", "4500.00", "0.00"]]
+    twob_rows = [["27AABCT3421M1Z2", "INV-MISMATCH", "01/09/2026", "50000.00", "1000.00", "1000.00", "0.00"]]
+
+    pr_csv = make_csv_bytes(HEADERS, pr_rows)
+    twob_csv = make_csv_bytes(HEADERS, twob_rows)
+
+    up = client.post("/api/reconciliation/upload", files={"purchase_register": ("pr.csv", pr_csv, "text/csv"), "gstr_2b": ("2b.csv", twob_csv, "text/csv")}).json()
+    job_id = up["job_id"]
+
+    client.post(f"/api/reconciliation/{job_id}/run")
+    results = client.get(f"/api/reconciliation/{job_id}/results").json()
+    res_id = results[0]["id"]
+
+    exp_res = client.get(f"/api/reconciliation/{job_id}/results/{res_id}/explanation")
+    assert exp_res.status_code == 200
+    exp_data = exp_res.json()
+    assert "Tax or value discrepancy" in exp_data["summary"]
+    assert any("CGST" in d for d in exp_data["details"])
+

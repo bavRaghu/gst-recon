@@ -84,6 +84,10 @@ export const StatusBadge: React.FC<BadgeProps> = ({ status, severity, label, siz
         displayLabel = label || 'Notice Sent';
         styleClasses = 'bg-emerald-50 text-emerald-800 border-emerald-200';
         break;
+      case 'failed':
+        displayLabel = label || 'Notice Failed';
+        styleClasses = 'bg-rose-50 text-rose-800 border-rose-200';
+        break;
       case 'draft':
         displayLabel = label || 'Draft Notice';
         styleClasses = 'bg-slate-100 text-slate-700 border-slate-200';
@@ -110,3 +114,48 @@ export const StatusBadge: React.FC<BadgeProps> = ({ status, severity, label, siz
     </span>
   );
 };
+
+interface SeverityBadgeProps {
+  severity?: 'MAJOR' | 'MINOR' | 'NONE' | 'UNCLASSIFIED' | string | null;
+  label?: string;
+  size?: 'sm' | 'md';
+}
+
+export const SeverityBadge: React.FC<SeverityBadgeProps> = ({ severity, label, size = 'sm' }) => {
+  const sev = (severity || 'UNCLASSIFIED').toUpperCase();
+  let displayLabel = label;
+  let styleClasses = 'bg-slate-100 text-slate-700 border-slate-200';
+
+  switch (sev) {
+    case 'MAJOR':
+      displayLabel = label || 'Major';
+      styleClasses = 'bg-rose-50 text-rose-700 border-rose-200 font-semibold';
+      break;
+    case 'MINOR':
+      displayLabel = label || 'Minor';
+      styleClasses = 'bg-amber-50 text-amber-700 border-amber-200 font-semibold';
+      break;
+    case 'NONE':
+      displayLabel = label || 'None';
+      styleClasses = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      break;
+    case 'UNCLASSIFIED':
+    default:
+      displayLabel = label || 'Unclassified';
+      styleClasses = 'bg-slate-100 text-slate-600 border-slate-200';
+      break;
+  }
+
+  const sizeClasses = size === 'sm' 
+    ? 'px-2 py-0.5 text-xs' 
+    : 'px-2.5 py-1 text-xs';
+
+  return (
+    <span 
+      className={`inline-flex items-center rounded border tracking-wide uppercase font-mono ${sizeClasses} ${styleClasses}`}
+    >
+      {displayLabel}
+    </span>
+  );
+};
+

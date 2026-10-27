@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { StatusBadge } from '../common/Badge';
+import { StatusBadge, SeverityBadge } from '../common/Badge';
 import type { ReconciliationRecord, BackendReconciliationResult } from '../../types';
 import { 
   X, 
@@ -93,6 +93,7 @@ export const InvoiceDetailDrawer: React.FC<DrawerProps> = ({
                   Reconciliation Record Detail
                 </h2>
                 <StatusBadge status={backendResult.status} />
+                <SeverityBadge severity={backendResult.severity} />
               </div>
               <p className="text-xs text-slate-500 mt-0.5 font-mono">
                 Invoice #{invoiceNum} • GSTIN: {gstin}
@@ -164,6 +165,25 @@ export const InvoiceDetailDrawer: React.FC<DrawerProps> = ({
                   ? 'Duplicate entries were detected with identical invoice number and supplier GSTIN. Verify whether this represents an accidental duplicate in books or an amended supplier filing.'
                   : 'A discrepancy in taxable value or tax amounts was detected. Verify the physical supplier invoice against the auto-drafted GSTR-2B filing to resolve the difference.'}
               </p>
+            </div>
+
+            {/* Deterministic Discrepancy Severity Assessment */}
+            <div className="rounded p-3.5 border border-slate-200 bg-slate-50 text-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2 font-bold text-slate-900">
+                  <Info className="w-4 h-4 text-blue-700" />
+                  <span>Severity Classification</span>
+                </div>
+                <SeverityBadge severity={backendResult.severity} />
+              </div>
+              {backendResult.severity_reason && (
+                <p className="leading-relaxed text-[11px] text-slate-700 font-medium pt-0.5">
+                  {backendResult.severity_reason}
+                </p>
+              )}
+              <div className="text-[10px] text-slate-500 font-mono pt-0.5">
+                Rules: Absolute threshold INR 1,000.00 | Relative threshold 1.0% | Matching tolerance INR 1.00
+              </div>
             </div>
 
             {/* Side-by-Side Field Comparison Table */}
